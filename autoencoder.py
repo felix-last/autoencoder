@@ -187,6 +187,8 @@ class Autoencoder:
             self.assign_clusters(sample_set)
             #for c_i in self.C:
             #    print(c_i)
+        self.update_cluster_centroids(self.training_set)
+        self.assign_clusters(self.training_set)
 
     def assign_clusters(self, dataset):
         x = self.x
