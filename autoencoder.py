@@ -12,100 +12,103 @@ class Autoencoder:
         self.layers = layers
         self.layer_count = len(layers)
         self.features_count = layers[0]
-        x = self.x = T.dvector('x')
-        w = self.w = []
+        self.activation_fn = activation_fn
+        self.training_set = training_set
+        X = self.X = T.dmatrix('X')
+        W = self.W = []
         b = self.b = []
-        z = self.z = []
-        a = self.a = [x]
+        Z = self.Z = []
+        A = self.A = [X]
 
-        eta = self.eta = theano.shared(0.1,name='eta')
+        eta = self.eta = theano.shared(0.0,name='eta')
 
         for layer, units in enumerate(layers):
             if layer is 0: continue
-            w_n = self.initialize_weights(rows=layers[layer-1], columns=units, number=layer)
+            W_n = self.initialize_weights(rows=layers[layer-1], columns=units, number=layer)
             b_n = self.initialize_biases(units, layer)
-            z_n = a[layer-1].dot(w_n) + b_n
-            a_n = activation_fn(z_n)
-            w.append(w_n)
+            Z_n = A[layer-1].dot(W_n) + b_n
+            A_n = activation_fn(Z_n)
+
+            W.append(W_n)
             b.append(b_n)
-            z.append(z_n)
-            a.append(a_n)
+            Z.append(Z_n)
+            A.append(A_n)
 
-        y = self.y = a[-1]
+        Y = self.Y = A[-1]
 
-        self.cost_graph = ((y - x)**2).sum()
-        self.compute_cost = function([self.x],self.cost_graph)       
+        self.MSSE = self._euclidian_distance(X,Y).mean()
 
-        self.training_set = training_set
         self.stats = []
-        self.collect_stats(0,0)
-        self.current_cost = None
-        self.prepare_backprop(self.cost_graph)
+        self.cost = self.MSSE
+        self.prepare_backprop()
+        self.clustering = False
 
-    def feedforward(self, x):
-        return function([self.x], self.a[-1], name="feedforward")(x)
-
-    def encode(self, x):
-        middle_layer = (self.layer_count/2).floor()
-        return function([self.x], self.a[middle_layer], name="encode")(x)
+    def feedforward(self, batch):
+        return function([self.X], self.A[-1], name="feedforward")(batch)
 
     def initialize_weights(self, rows, columns, number, method='random'):
         return theano.shared(
-            numpy.random.randn(rows, columns), name="w{0}".format(number)
+            numpy.random.randn(rows, columns), name="W{0}".format(number)
         )
     def initialize_biases(self, rows, number, method='random'):
         return theano.shared(
             numpy.random.randn(rows), name="b{0}".format(number)
         )    
         
-    def prepare_backprop(self, cost):#, x, eta):
-        if self.current_cost is cost:
-            return
-        else:
-            self.current_cost = cost
-
-        a = self.a
-        z = self.z
-        w = self.w
+    def prepare_backprop(self):#, x, eta):
+        A = self.A
+        Z = self.Z
+        W = self.W
         b = self.b
         eta = self.eta
-        error_L = T.grad(cost, wrt=a[-1]) * T.jacobian(a[-1], wrt=z[-1]).diagonal()
+        
         gradients_wrt_w = []
         gradients_wrt_b = []
         updates_list = []
-        for layer in range(1, self.layer_count):
-            if layer is 1:
-                error_l = error_L
-            else:
-                error_l = ( w[-(layer-1)].dot(previous_error) ) * T.jacobian(a[-layer], wrt=z[-layer]).diagonal()
-            previous_error = error_l
-            a_n_prime = a[-(layer+1)] 
-            a_n_prime = a_n_prime.reshape((a_n_prime.shape[0], 1)) # shape to (k x 1) so that matrix multiplication is possible
-            delta_w_n = -eta * (a_n_prime * error_l)             
-            delta_b_n = -eta * (error_l)
-            w_n = self.w[-layer]
-            b_n = self.b[-layer]
-            updates_list.append((w_n, w_n + delta_w_n))
-            updates_list.append((b_n, b_n + delta_b_n))
-        self.update_weights_and_biases = function([self.x], updates=updates_list)
-
-
-    def backprop_SGD(self, x):
-        self.update_weights_and_biases(x)
         
-    def compute_avg_cost(self, dataset):
-        avg_cost = 0
-        for r in dataset:
-            avg_cost += self.compute_cost(r) / dataset.shape[0]
-        return avg_cost
+        def fn_grad_a_wrt_z(Z):
+                A = self.activation_fn(Z) # have to redefine A here because theano doesn't recognize the subtensor relationship
+                return theano.tensor.jacobian(A, wrt=Z).diagonal()
 
-    def collect_stats(self, epoch, eta):
+        for layer in range(1, self.layer_count):
+            grad_a_wrt_z, _ = theano.scan(
+                    fn=fn_grad_a_wrt_z, 
+                    sequences=[Z[-layer]]
+                )
+            
+            if layer is 1:
+                first_term = T.grad(self.cost, wrt=A[-1]).mean(axis=0)
+            else:
+                first_term = ( W[-(layer-1)].dot(error_l) )
+
+            error_l = first_term * grad_a_wrt_z.mean(axis=0)
+
+            W_n = self.W[-layer]
+            b_n = self.b[-layer]
+
+            A_prime = A[-(layer+1)].sum(axis=0)
+            A_prime = A_prime.reshape((A_prime.shape[0], 1)) # shape to (k x 1) so that matrix multiplication is possible
+            
+            delta_W_n = -eta * (A_prime * error_l)
+            delta_b_n = -eta * (error_l)
+            
+            updates_list.append((W_n, W_n + delta_W_n))
+            updates_list.append((b_n, b_n + delta_b_n))
+        self.update_weights_and_biases = function([self.X], updates=updates_list)
+
+    def collect_stats(self, epoch):
         if self.training_set is not None:
-            self.stats.append({
-                    'epoch': epoch,
-                    'average_cost': self.compute_avg_cost(self.training_set),
-                    'eta': eta
-                })
+            current = {
+                'epoch': epoch,
+                'Total Cost': np.asscalar(function([self.X],self.cost)(self.training_set)),
+                'eta': self.eta.get_value()
+            }
+            if self.clustering:
+                current['MSSE'] = np.asscalar(function([self.X],self.MSSE)(self.training_set))
+                current['Clustering Cost'] = np.asscalar(function([self.X],self.clustering_cost)(self.training_set))
+                if self.q.get_value() != 1:
+                    current['Clustering Cost * q'] = np.asscalar(function([self.X],self.q*self.clustering_cost)(self.training_set))
+            self.stats.append(current)
 
     def get_stats(self, as_df=False):
         if as_df:
@@ -113,116 +116,140 @@ class Autoencoder:
             if len(self.stats) > 0:
                 df_stats.set_index('epoch')
                 df_stats.index.set_names(['epoch'], inplace=True)
+                df_stats.drop('epoch', axis=1, inplace=True)
             return df_stats
         else:
             return self.stats
 
     def plot_stats(self):
-        self.get_stats(as_df=True)[['average_cost']].plot()
+        stats = self.get_stats(as_df=True)
+        if len(stats) > 1:
+            stats.plot()
+        else:
+            print('Nothing to plot.')
 
-    def train(self, epochs, learning_rate, cost, eta_strategy=(lambda eta, epoch: eta), collect_stats=True):
-        self.prepare_backprop(cost=cost)
+    def adjust_eta(self, eta_strategy, epoch):
+        self.eta.set_value(
+                eta_strategy(self.eta.get_value(), epoch)
+            )
+    def train(self, epochs, learning_rate, minibatch_size, eta_strategy=(lambda eta, epoch: eta), collect_stats_every_nth_epoch=1):
+        self.cost = self.MSSE
         eta = self.eta
         eta.set_value(learning_rate)
         next_epoch = self.get_stats()[-1]['epoch'] + 1
-        for epoch in range(next_epoch,next_epoch + epochs):
-            for row in self.training_set:
-                self.backprop_SGD(row)
-            if collect_stats:
-                self.collect_stats(epoch, eta.get_value())
-            eta.set_value(
-                eta_strategy(eta.get_value(), epoch)
-            )
+        if minibatch_size < 1:
+            minibatch_size = minibatch_size * self.training_set.shape[0]
+        self.collect_stats(0)
+        for epoch in range(1,epochs+1):
+            for batch_no in range(0,self.training_set.shape[0] // minibatch_size):
+                minibatch = sklearn.utils.shuffle(self.training_set, n_samples=minibatch_size)
+                self.update_weights_and_biases(minibatch)
+            if (epoch % collect_stats_every_nth_epoch) == 0:
+                self.collect_stats(epoch)
+            self.adjust_eta(eta_strategy, epoch)
 
-    def prepare_clustering(self, q, k, dataset):
-        x = self.x
-        a = self.a
-        self.k = k
+    def prepare_clustering(self, data, k, q):
+        self.initialize_clusters_and_assignment(data, k, q)
+        self.clustering = True
+        X = self.X
+        A = self.A
         
-        h_dim = self.h_dim = self.layers[self.layer_count // 2] # number of units on mapping layer
+        H = self.H = A[self.layer_count // 2] # middle hidden layer, mapping function
+        C = self.C # cluster centroids on H
+        
+        # C_closest_index = self.C_closest_index = T.argmin(((C-H)**2).sum(axis=1)) # index of closest cluster centroid to a given observation
+        # C_closest = self.C_closest = C[C_closest_index] # closest cluster centroid to a given observation
+        self.cluster_assignment, _ = theano.scan(
+            fn=lambda h, C: T.argmin( self._euclidian_distance(h,C) ),#.astype('int32'),
+            sequences=H,
+            non_sequences=C
+        )
+        self.distance_closest_cluster, _ = theano.scan(
+            fn=lambda h, C: T.min( self._euclidian_distance(h,C) ),
+            sequences=H,
+            non_sequences=C
+        )
+        self.per_cluster_cost, _ = theano.scan(
+                fn=lambda k, distances, assignment: (distances[T.eq(assignment, T.fill(assignment,k)).nonzero()]).sum(),
+                sequences=[T.arange(C.shape[0])],
+                non_sequences=[self.distance_closest_cluster,self.current_cluster_assignment]
+            )
+        self.clustering_cost = self.per_cluster_cost.sum()
+        self.cluster_centroids, _ = theano.scan(
+            fn=lambda k, H, assignment: (H[T.eq(assignment, T.fill(assignment,k)).nonzero()]).mean(axis=0),
+            sequences=[T.arange(C.shape[0])],
+            non_sequences=[H,self.current_cluster_assignment]
+        )
+        self.update_cluster_centroids(data)
+        self.update_cluster_assignment(data)
 
-        C = self.C = theano.shared(
+    def initialize_clusters_and_assignment(self, data, k, q):
+        h_dim = self.layers[self.layer_count // 2] # number of units on mapping layer
+        self.k = k
+        self.q = theano.shared(q, name='q') # clustering hyper parameter
+        self.C = theano.shared(
             np.random.rand(k,h_dim),
             name='C'
-        ) # matrix of cluster centroids
+        )
+        self.current_cluster_assignment = theano.shared((np.random.choice(k, data.shape[0])).astype('int64'), 'current_cluster_assignment')
+        
 
-        if hasattr(self, 'q') and self.k is k and self.q is q:
-            return
-        
-        h = self.h = a[self.layer_count // 2] # middle hidden layer, mapping function
-        self.encode = function([x], h)
-        
-        c_closest_index = self.c_closest_index = T.argmin(((C-h)**2).sum(axis=1)) # index of closest cluster centroid to a given observation
-        c_closest = self.c_closest = C[c_closest_index] # closest cluster centroid to a given observation
-        
-        self.q = theano.shared(q, name='q') # clustering hyper parameter
-        
-        self.clustering_cost_graph = self.cost_graph + self.q * ((h - c_closest)**2).sum()
-        self.compute_cost_for_clustering = function([x], self.clustering_cost_graph)
-        
-        clustered_dataset = [ [] for cluster_no in range(0,k) ]
-        for i, observation in enumerate(dataset):
-            cluster_no = i % k # assumes an already shuffled set!!
-            clustered_dataset[cluster_no].append(self.encode(observation))
-        self.clustered_dataset = np.asarray( [ np.asarray(cluster) for cluster in clustered_dataset ] )
+    def update_cluster_assignment(self,data):
+        self.current_cluster_assignment.set_value( function([self.X], self.cluster_assignment)(data))
+    def update_cluster_centroids(self,data):
+        self.C.set_value( function([self.X], self.cluster_centroids)(data) )
 
+    def cluster(self, epochs, learning_rate, q, k, minibatch_size, eta_strategy=(lambda eta, epoch: eta), collect_stats_every_nth_epoch=1, plot_clusters_every_nth_epoch=1):
+        self.eta.set_value(learning_rate)
+        if minibatch_size < 1:
+            minibatch_size = minibatch_size * self.training_set.shape[0]
 
-    def cluster(self, epochs, learning_rate, q, k, eta_strategy=(lambda eta, epoch: eta), collect_stats=True):
-        sample_set = sklearn.utils.shuffle(self.training_set, n_samples=(self.training_set.shape[0]//10)) # use a random sample of 10% for clustering
-        self.prepare_clustering(q,k,dataset=sample_set)
-        self.prepare_backprop(cost=self.clustering_cost_graph)
-        eta = self.eta
-        eta.set_value(learning_rate)
-        next_epoch = self.get_stats()[-1]['epoch'] + 1
-        
-        for epoch in range(next_epoch,next_epoch + epochs):
-            for row in self.training_set:
-                self.backprop_SGD(row)
-            if collect_stats:
-                self.collect_stats(epoch, eta.get_value())
-            eta.set_value(
-                eta_strategy(eta.get_value(), epoch)
-            )
-            self.update_cluster_centroids(sample_set)
-            self.assign_clusters(sample_set)
-            #for c_i in self.C:
-            #    print(c_i)
+        clustering_sample = sklearn.utils.shuffle( # use a random sample of ..% for clustering  
+            self.training_set, 
+            n_samples=(self.training_set.shape[0]//4)
+        )
+        self.prepare_clustering(data=clustering_sample, k=k, q=q)
+        self.cost = self.MSSE + (self.q * self.clustering_cost)    
+
+        self.collect_stats(0)
+        for epoch in range(1, epochs+1):
+            for batch_no in range(0,self.training_set.shape[0] // minibatch_size):
+                minibatch = sklearn.utils.shuffle(self.training_set, n_samples=minibatch_size) # use a random sample of 10% for clustering
+                self.update_weights_and_biases(minibatch)
+            if (epoch % collect_stats_every_nth_epoch) == 0:
+                self.collect_stats(epoch)
+            self.adjust_eta(eta_strategy, epoch)
+            self.update_cluster_centroids(clustering_sample)
+            self.update_cluster_assignment(clustering_sample)
+            if epoch == 1 or (epoch % plot_clusters_every_nth_epoch) == 0:
+                self.plot_clusters(clustering_sample, epoch)
+        self.update_cluster_assignment(self.training_set)
         self.update_cluster_centroids(self.training_set)
-        self.assign_clusters(self.training_set)
+        self.plot_clusters(self.training_set, 'Final (entire set)')
 
-    def assign_clusters(self, dataset):
-        x = self.x
-        clustered_dataset = [ [] for cluster_no in range(0,self.k) ]
-        for observation in dataset:
-            cluster_no = function([x], outputs=self.c_closest_index)(observation)
-            clustered_dataset[cluster_no].append(self.encode(observation))
-        self.assigned_last_to = self.C
-        self.clustered_dataset = np.asarray( [ np.asarray(cluster) for cluster in clustered_dataset ] )
-        return self.clustered_dataset
 
-    def update_cluster_centroids(self, dataset):
-        clustered_dataset = self.clustered_dataset
-        new_cluster_centroids = np.empty((self.k, self.h_dim))
-        for cluster_no, observations in enumerate(clustered_dataset):
-            new_cluster_centroids[cluster_no] = observations.mean(axis=0)
-        self.C.set_value(new_cluster_centroids)
+    def plot_clusters(self, data, epoch):
+        np_H = theano.function([self.X],self.H)(data)
+        np_assignment = function([self.X], self.cluster_assignment)(data)
+        np_cluster_centroids = function([self.X], self.cluster_centroids)(data)
 
-    def plot_clusters(self):
-        plt.figure()
         colors = ['b','r','g','c','m','y','k','w']
-        for i, cluster in enumerate(self.clustered_dataset):
-            plt.scatter(
-                x=cluster.transpose()[0],
-                y=cluster.transpose()[1], 
-                marker='x', 
-                c=colors[i]
-            )
+        plt.figure()
+        plt.scatter(
+            x=np_H[:,0], 
+            y=np_H[:,1], 
+            marker='x', 
+            color=[ colors[i] for i in np_assignment ]
+        )
+        plt.scatter(
+            x=np_cluster_centroids[:,0],
+            y=np_cluster_centroids[:,1],
+            marker='o',
+            color=colors
+        )
+        plt.title('Epoch:' + str(epoch))
+        plt.show()
 
-        for i, centroid in enumerate(self.C.get_value()):
-            plt.scatter(
-                x=centroid.transpose()[0],
-                y=centroid.transpose()[1], 
-                marker='o', 
-                c=colors[i]
-            )
+    def _euclidian_distance(self, a, b):
+        return ((a-b)**2).sum(axis=1)
 
