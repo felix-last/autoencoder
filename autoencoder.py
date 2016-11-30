@@ -118,11 +118,11 @@ class Autoencoder:
         else:
             return self.stats
 
-    def plot_stats(self, stacked=False):
+    def plot_stats(self, stacked=False, title=None):
         stats = self.get_stats(as_df=True)
         if len(stats) > 1:
             if stacked:
-                stats[['MSSE', 'Clustering Cost * q']].plot.area()
+                stats[['MSSE', 'Clustering Cost * q']].plot.area(title=title)
             else:
                 return stats.plot()
         else:
@@ -234,15 +234,13 @@ class Autoencoder:
             if(self.q.get_value() != 0):
                 self.update_cluster_centroids(clustering_sample)
                 self.update_cluster_assignment(clustering_sample)
-            if epoch == 1 or (epoch % plot_clusters_every_nth_epoch) == 0:
-                self.plot_clusters(clustering_sample, epoch)
-            
-            # debug
-            
+                if epoch == 1 or (epoch % plot_clusters_every_nth_epoch) == 0:
+                    self.plot_clusters(clustering_sample, epoch)          
 
             if q_msse_threshold > 0 and self.q.get_value() == 0:
                 if epoch % 10 == 0:
                     msse = function([self.X],self.MSSE)(self.training_set)
+                    print(epoch, msse)
                     if msse < q_msse_threshold:
                         print('Epoch', epoch, ': MSSE', msse, 'is now smaller than Q-MSSE-Threshold', q_msse_threshold)
                         print('Beginning clustering.')
