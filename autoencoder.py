@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import sklearn.utils
 
 class Autoencoder:
-    def __init__(self, layers, training_set, activation_fn=T.nnet.sigmoid):
+    def __init__(self, layers, training_set, activation_fn=T.nnet.sigmoid, initialize_parameters_method='random'):
         self.layers = layers
         self.layer_count = len(layers)
         self.features_count = layers[0]
@@ -19,13 +19,18 @@ class Autoencoder:
         b = self.b = []
         Z = self.Z = []
         A = self.A = [X]
+        prev_grad_W = self.prev_grad_W = []
+        prev_grad_b = self.prev_grad_b = []
 
         eta = self.eta = theano.shared(0.0,name='eta')
+        mu = self.mu = theano.shared(0.0, name='mu')
 
         for layer, units in enumerate(layers):
             if layer is 0: continue
-            W_n = self.initialize_weights(rows=layers[layer-1], columns=units, number=layer)
-            b_n = self.initialize_biases(units, layer)
+            W_n = self.initialize_weights(rows=layers[layer-1], columns=units, number=layer, method=initialize_parameters_method)
+            b_n = self.initialize_biases(units, layer, method=initialize_parameters_method)
+            prev_grad_W_n = theano.shared(np.zeros((layers[layer-1], units)), 'prev_grad_W_n')
+            prev_grad_b_n = theano.shared(np.zeros(units), 'prev_grad_b_n')
             Z_n = A[layer-1].dot(W_n) + b_n
             A_n = activation_fn(Z_n)
 
@@ -33,6 +38,8 @@ class Autoencoder:
             b.append(b_n)
             Z.append(Z_n)
             A.append(A_n)
+            prev_grad_W.append(prev_grad_W_n)
+            prev_grad_b.append(prev_grad_b_n)
 
         Y = self.Y = A[-1]
 
@@ -47,20 +54,32 @@ class Autoencoder:
         return function([self.X], self.A[-1], name="feedforward")(batch)
 
     def initialize_weights(self, rows, columns, number, method='random'):
+        if method is 'random':
+            W_n = np.random.randn((rows, columns))
+        elif method is 'ones':
+            W_n = np.ones((rows, columns))
         return theano.shared(
-            numpy.random.randn(rows, columns), name="W{0}".format(number)
+            W_n, name="W{0}".format(number)
         )
     def initialize_biases(self, rows, number, method='random'):
+        if method is 'random':
+            b_n = np.random.randn(rows)
+        elif method is 'ones':
+            b_n = np.ones(rows)
         return theano.shared(
-            numpy.random.randn(rows), name="b{0}".format(number)
+            b_n, name="b{0}".format(number)
         )    
         
     def prepare_backprop(self):#, x, eta):
         A = self.A
         Z = self.Z
+        X = self.X
         W = self.W
         b = self.b
         eta = self.eta
+        prev_grad_W = self.prev_grad_W
+        prev_grad_b = self.prev_grad_b
+        mu = self.mu
         
         gradients_wrt_w = []
         gradients_wrt_b = []
@@ -83,18 +102,23 @@ class Autoencoder:
 
             error_l = first_term * grad_a_wrt_z.mean(axis=0)
 
-            W_n = self.W[-layer]
-            b_n = self.b[-layer]
+            W_n = W[-layer]
+            b_n = b[-layer]
 
             A_prime = A[-(layer+1)].sum(axis=0)
             A_prime = A_prime.reshape((A_prime.shape[0], 1)) # shape to (k x 1) so that matrix multiplication is possible
             
-            delta_W_n = -eta * (A_prime * error_l)
-            delta_b_n = -eta * (error_l)
+            grad_W_n = (A_prime * error_l) + (mu * prev_grad_W[-layer])
+            grad_b_n = (error_l) + (mu * prev_grad_b[-layer])
+            delta_W_n = -eta * grad_W_n
+            delta_b_n = -eta * grad_b_n
             
             updates_list.append((W_n, W_n + delta_W_n))
             updates_list.append((b_n, b_n + delta_b_n))
-        self.update_weights_and_biases = function([self.X], updates=updates_list)
+            updates_list.append((prev_grad_W[-layer], grad_W_n))
+            updates_list.append((prev_grad_b[-layer], grad_b_n))
+        self.update_weights_and_biases = function([X], updates=updates_list)
+
 
     def collect_stats(self, epoch):
         if self.training_set is not None:
@@ -132,10 +156,11 @@ class Autoencoder:
         self.eta.set_value(
                 eta_strategy(self.eta.get_value(), epoch)
             )
-    def train(self, epochs, learning_rate, minibatch_size, eta_strategy=(lambda eta, epoch: eta), collect_stats_every_nth_epoch=1):
+    def train(self, epochs, learning_rate, minibatch_size, mu=0.0, eta_strategy=(lambda eta, epoch: eta), collect_stats_every_nth_epoch=1):
         self.cost = self.MSSE
         eta = self.eta
         eta.set_value(learning_rate)
+        self.mu.set_value(mu)
         next_epoch = self.get_stats()[-1]['epoch'] + 1
         if minibatch_size < 1:
             minibatch_size = minibatch_size * self.training_set.shape[0]
@@ -209,8 +234,9 @@ class Autoencoder:
     def update_cluster_centroids(self,data):
         self.C.set_value( function([self.X], self.cluster_centroids)(data) )
 
-    def cluster(self, epochs, learning_rate, q, k, minibatch_size, q_msse_threshold=-1, eta_strategy=(lambda eta, epoch: eta), collect_stats_every_nth_epoch=1, plot_clusters_every_nth_epoch=1):
+    def cluster(self, epochs, learning_rate, q, k, minibatch_size, mu=0.0, q_msse_threshold=-1, eta_strategy=(lambda eta, epoch: eta), collect_stats_every_nth_epoch=1, plot_clusters_every_nth_epoch=1):
         self.eta.set_value(learning_rate)
+        self.mu.set_value(mu)
         if minibatch_size < 1:
             minibatch_size = minibatch_size * self.training_set.shape[0]
 
