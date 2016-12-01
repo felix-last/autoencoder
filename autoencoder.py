@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 
 import sklearn.utils
 
+from time import time
+
 class Autoencoder:
 
 
@@ -162,8 +164,12 @@ class Autoencoder:
         self.set_training_params(eta, mu, minibatch_size, eta_strategy, collect_stats_every_nth_epoch)
         
         self.collect_stats(0)
+        start_time = time()
         for epoch in range(1, epochs+1):
             self.perform_training_epoch(epoch)
+        time_elapsed = time() - start_time
+        print('Total Time:', time_elapsed, 'Per Epoch ~', time_elapsed/epochs)
+
 
 
 
@@ -242,6 +248,7 @@ class Autoencoder:
         self.cost = self.MSSE + (self.q * self.clustering_cost)    
 
         self.collect_stats(0)
+        start_time = time()
         for epoch in range(1, epochs+1):
             self.perform_training_epoch(epoch)
 
@@ -261,6 +268,9 @@ class Autoencoder:
                             self.q.set_value(q)
                             self.update_cluster_assignment(clustering_sample)
                             self.update_cluster_centroids(clustering_sample)
+        
+        time_elapsed = time() - start_time
+        print('Total Time:', time_elapsed, 'Per Epoch ~', time_elapsed/epochs)
 
         self.update_cluster_assignment(self.training_set)
         self.update_cluster_centroids(self.training_set)
