@@ -129,8 +129,8 @@ class Autoencoder:
             A_prime = A[-(layer+1)].sum(axis=0)
             A_prime = A_prime.reshape((A_prime.shape[0], 1)) # shape to (k x 1) so that matrix multiplication is possible
             
-            delta_W_n = -eta * ( (A_prime * error_l) + (mu * prev_grad_W[-layer]) )
-            delta_b_n = -eta * ( (error_l) + (mu * prev_grad_b[-layer]) )
+            delta_W_n = -eta * (A_prime * error_l) + (mu * prev_grad_W[-layer])
+            delta_b_n = -eta * (error_l) + (mu * prev_grad_b[-layer])
             
             updates_list.append((W_n, W_n + delta_W_n))
             updates_list.append((b_n, b_n + delta_b_n))
