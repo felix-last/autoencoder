@@ -128,15 +128,13 @@ class Autoencoder:
             A_prime = A[-(layer+1)].sum(axis=0)
             A_prime = A_prime.reshape((A_prime.shape[0], 1)) # shape to (k x 1) so that matrix multiplication is possible
             
-            grad_W_n = (A_prime * error_l) + (mu * prev_grad_W[-layer])
-            grad_b_n = (error_l) + (mu * prev_grad_b[-layer])
-            delta_W_n = -eta * grad_W_n
-            delta_b_n = -eta * grad_b_n
+            delta_W_n = -eta * ( (A_prime * error_l) + (mu * prev_grad_W[-layer]) )
+            delta_b_n = -eta * ( (error_l) + (mu * prev_grad_b[-layer]) )
             
             updates_list.append((W_n, W_n + delta_W_n))
             updates_list.append((b_n, b_n + delta_b_n))
-            updates_list.append((prev_grad_W[-layer], grad_W_n))
-            updates_list.append((prev_grad_b[-layer], grad_b_n))
+            updates_list.append((prev_grad_W[-layer], delta_W_n))
+            updates_list.append((prev_grad_b[-layer], delta_b_n))
         self.update_weights_and_biases = theano.function([X], updates=updates_list)
     
     def set_training_params(self, eta, mu, minibatch_size, eta_strategy, collect_stats_every_nth_epoch):
