@@ -62,6 +62,7 @@ class Autoencoder:
 
         self.stats = []
         self.cost = self.MSSE
+        self.get_cost = theano.function([self.X], self.cost)
         self.scaffold_backprop()
         self.clustering = False
 
@@ -160,13 +161,15 @@ class Autoencoder:
     
     def train(self, epochs, eta, minibatch_size, mu=0.0, eta_strategy=None, collect_stats_every_nth_epoch=1):
         self.set_training_params(eta, mu, minibatch_size, eta_strategy, collect_stats_every_nth_epoch)
+        self.cost = self.MSSE
         
-        self.collect_stats(0)
+        self.collect_stats(0)        
+        print('Starting training with initial cost:', self.get_cost(self.training_set))
         start_time = time()
         for epoch in range(1, epochs+1):
             self.perform_training_epoch(epoch)
         time_elapsed = time() - start_time
-        print('Total Time:', time_elapsed, 'Per Epoch ~', time_elapsed/epochs)
+        print('Training Time:', time_elapsed, 'Per Epoch ~', time_elapsed/epochs)
 
 
 
@@ -178,7 +181,6 @@ class Autoencoder:
     ###############################################################
 
     def scaffold_clustering(self, data, k, q):
-        self.clustering = True
         X = self.X
         A = self.A
         H = self.H
@@ -243,32 +245,39 @@ class Autoencoder:
         self.scaffold_clustering(data=clustering_sample, k=k, q=q)
         if q_msse_threshold > 0:
             self.q.set_value(0)
-        self.cost = self.MSSE + (self.q * self.clustering_cost)    
+            self.cost = self.MSSE
+            self.clustering = False
+        else: 
+            self.cost = self.MSSE + (self.q * self.clustering_cost) 
+            self.clustering = True
 
         self.collect_stats(0)
+        print('Starting training with initial cost:', self.get_cost(self.training_set))
         start_time = time()
         for epoch in range(1, epochs+1):
             self.perform_training_epoch(epoch)
 
-            if(self.q.get_value() > 0):
+            if(self.clustering):
                 self.update_cluster_centroids(clustering_sample)
                 self.update_cluster_assignment(clustering_sample)
                 if (epoch == 1 or (epoch % plot_clusters_every_nth_epoch) == 0) and plot_clusters_every_nth_epoch > 0:
                     self.plot_clusters(clustering_sample, epoch)          
             else:
-                if epoch % 10 == 0:
+                if epoch % plot_clusters_every_nth_epoch == 0:
                     if q_msse_threshold > 0:
-                        msse = theano.function([self.X],self.MSSE)(self.training_set)
-                        print(epoch, msse)
+                        msse = theano.function([self.X],self.MSSE)(clustering_sample)
+                        print('Epoch', epoch, 'Sample MSSE:', msse)
                         if msse < q_msse_threshold:
-                            print('Epoch', epoch, ': MSSE', msse, 'is now smaller than Q-MSSE-Threshold', q_msse_threshold)
+                            print('Epoch', epoch, ': Sample MSSE', msse, 'is now smaller than Q-MSSE-Threshold', q_msse_threshold)
                             print('Beginning clustering.')
+                            self.cost = self.MSSE + (self.q * self.clustering_cost)  
                             self.q.set_value(q)
+                            self.clustering = True
                             self.update_cluster_assignment(clustering_sample)
                             self.update_cluster_centroids(clustering_sample)
         
         time_elapsed = time() - start_time
-        print('Total Time:', time_elapsed, 'Per Epoch ~', time_elapsed/epochs)
+        print('Training Time:', time_elapsed, 'Per Epoch ~', time_elapsed/epochs)
 
         self.update_cluster_assignment(self.training_set)
         self.update_cluster_centroids(self.training_set)
@@ -284,17 +293,20 @@ class Autoencoder:
     ###############################################################
 
     def collect_stats(self, epoch):
+        current = {
+            'epoch': epoch,
+            'eta': np.asscalar(self.eta.get_value())
+        }
         if self.training_set is not None:
-            current = {
-                'epoch': epoch,
-                'Total Cost': np.asscalar(theano.function([self.X],self.cost)(self.training_set)),
-                'eta': self.eta.get_value()
-            }
+            theano_computations = [self.MSSE]
+            theano_compute = theano.function([self.X],theano_computations)
             if self.clustering:
-                current['MSSE'] = np.asscalar(theano.function([self.X],self.MSSE)(self.training_set))
-                current['Clustering Cost'] = np.asscalar(theano.function([self.X],self.clustering_cost)(self.training_set))
-                current['Clustering Cost * q'] = np.asscalar(theano.function([self.X],self.q*self.clustering_cost)(self.training_set))
-            self.stats.append(current)
+                theano_computations.append(self.clustering_cost)
+                theano_computations.append(self.clustering_cost * self.q)
+            current['MSSE'], *other_results = (np.asscalar(arr) for arr in theano_compute(self.training_set))
+            if len(other_results) > 0:
+                current['Clustering Cost'], current['Clustering Cost * q'] = other_results
+        self.stats.append(current)
 
     def get_stats(self, as_df=False):
         if as_df:
@@ -308,10 +320,13 @@ class Autoencoder:
     def plot_stats(self, stacked=False, title=None):
         stats = self.get_stats(as_df=True)
         if len(stats) > 1:
+            graphs = ['MSSE']
             if stacked:
-                stats[['MSSE', 'Clustering Cost * q']].plot.area(title=title)
+                if self.clustering:
+                    graphs.append('Clustering Cost * q')
+                stats[graphs].plot.area(title=title)
             else:
-                return stats.plot()
+                return stats[graphs].plot()
         else:
             print('Nothing to plot')
     def plot_clusters(self, data, epoch):
