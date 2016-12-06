@@ -181,7 +181,7 @@ class Autoencoder:
 
     def is_validation_performance_decreasing(self):
         self.current_validation_cost = self.get_cost(self.validation_set)
-        if self.current_validation_cost >= self.last_validation_cost:
+        if self.current_validation_cost >= self.last_validation_cost || np.isclose(self.current_validation_cost, self.last_validation_cost):
             self.last_validation_cost_age += 1
         else:
             self.last_validation_cost_age = 0
@@ -257,20 +257,15 @@ class Autoencoder:
     def update_cluster_centroids(self,data):
         self.C.set_value( theano.function([self.X], self.cluster_centroids)(data) )
 
-    def cluster(self, epochs, eta, q, k, minibatch_size, mu=0.0, q_mse_threshold=-1, eta_strategy=None, collect_stats_every_nth_epoch=1, plot_clusters_every_nth_epoch=-1, verbose=None):
+    def cluster(self, epochs, eta, q, k, minibatch_size, mu=0.0, eta_strategy=None, collect_stats_every_nth_epoch=1, plot_clusters_every_nth_epoch=-1, verbose=None):
         self.set_training_params(eta, mu, minibatch_size, eta_strategy, collect_stats_every_nth_epoch)
         
         # Clustering Preparation
         clustering_sample = self.training_set #sklearn.utils.shuffle(self.training_set, n_samples=minibatch_size)
         self.scaffold_clustering(data=clustering_sample, k=k, q=q)
-        if q_mse_threshold > 0:
-            self.q.set_value(0)
-            self.cost = self.MSE
-            self.clustering = False
-        else: 
-            self.cost = self.MSE + (self.q * self.clustering_cost) 
-            self.clustering = True
-            self.scaffold_backprop()
+        self.cost = self.MSE + (self.q * self.clustering_cost) 
+        self.clustering = True
+        self.scaffold_backprop()
 
         self.collect_stats(0)
         print('Starting training with initial training cost:', self.get_cost(self.training_set), 'and validation cost:', self.get_cost(self.validation_set))
@@ -281,24 +276,10 @@ class Autoencoder:
                 print('Epoch', epoch, '- Stopping training to avoid overfitting')
                 break
 
-            if(self.clustering):
-                self.update_cluster_centroids(clustering_sample)
-                self.update_cluster_assignment(clustering_sample)
-                if (epoch == 1 or (epoch % plot_clusters_every_nth_epoch) == 0) and plot_clusters_every_nth_epoch > 0:
-                    self.plot_clusters(clustering_sample, epoch)          
-            else:
-                if epoch % plot_clusters_every_nth_epoch == 0:
-                    if q_mse_threshold > 0:
-                        mse = theano.function([self.X],self.MSE)(self.training_set)
-                        print('Epoch', epoch, 'MSE:', mse)
-                        if mse < q_mse_threshold:
-                            print('Epoch', epoch, ': MSE', mse, 'is now smaller than Q-MSE-Threshold', q_mse_threshold)
-                            print('Beginning clustering.')
-                            self.cost = self.MSE + (self.q * self.clustering_cost)  
-                            self.q.set_value(q)
-                            self.clustering = True
-                            self.update_cluster_assignment(clustering_sample)
-                            self.update_cluster_centroids(clustering_sample)
+            self.update_cluster_centroids(clustering_sample)
+            self.update_cluster_assignment(clustering_sample)
+            if (epoch == 1 or (epoch % plot_clusters_every_nth_epoch) == 0) and plot_clusters_every_nth_epoch > 0:
+                self.plot_clusters(clustering_sample, epoch)
         
         time_elapsed = time() - start_time
         print('Training Time:', time_elapsed, 'Per Epoch ~', time_elapsed/epochs)
