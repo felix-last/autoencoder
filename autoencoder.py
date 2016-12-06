@@ -59,9 +59,10 @@ class Autoencoder:
         
         self.euclidian_distance = lambda a, b: ((a-b)**2).sum(axis=1)
         self.MSSE = self.euclidian_distance(X,Y).mean()
+        self.MSE = ((X-Y)**2).mean()
 
         self.stats = []
-        self.cost = self.MSSE
+        self.cost = self.MSE
         self.get_cost = theano.function([self.X], self.cost)
         self.scaffold_backprop()
         self.clustering = False
@@ -71,6 +72,8 @@ class Autoencoder:
             W_n = np.random.randn(rows, columns)
         elif method is 'ones':
             W_n = np.ones((rows, columns))
+        elif method is 'zeros':
+            W_n = np.zeros((rows, columns))
         return theano.shared(
             W_n, name="W{0}".format(number)
         )
@@ -79,6 +82,8 @@ class Autoencoder:
             b_n = np.random.randn(rows)
         elif method is 'ones':
             b_n = np.ones(rows)
+        elif method is 'zeros':
+            b_n = np.zeros(rows)
         return theano.shared(
             b_n, name="b{0}".format(number)
         )
@@ -105,6 +110,11 @@ class Autoencoder:
         updates_list = []
 
         for layer in range(1, self.layer_count):
+            if layer <= self.layer_count / 2: # behind hidden layer
+                cost = self.MSE
+            else:
+                cost = self.cost
+
             W_n = W[-layer]
             b_n = b[-layer]
             prev_delta_W_n = prev_delta_W[-layer]
@@ -128,27 +138,34 @@ class Autoencoder:
             self.minibatch_size = minibatch_size * self.training_set.shape[0]
         else:
             self.minibatch_size = minibatch_size
+        self.stats = []
 
-    def perform_training_epoch(self, epoch):
-        for batch_no in range(0,self.training_set.shape[0] // self.minibatch_size):
-            minibatch = sklearn.utils.shuffle(self.training_set, n_samples=self.minibatch_size) # use a random sample of 10% for clustering
+    def perform_training_epoch(self, epoch, verbose=None):
+        shuffled_indices = sklearn.utils.shuffle(np.arange(0,len(self.training_set)))
+        for batch_no in range(0,self.training_set.shape[0] // self.minibatch_size + 1):
+            start_index = batch_no * self.minibatch_size
+            end_index = start_index + self.minibatch_size
+            if end_index >= len(self.training_set):
+                end_index = len(self.training_set) - 1
+            minibatch_indices = shuffled_indices[start_index:end_index]
+            minibatch =  self.training_set[minibatch_indices]
             self.update_weights_and_biases(minibatch)
 
         if (epoch % self.collect_stats_every_nth_epoch) == 0:
-            self.collect_stats(epoch)
+            self.collect_stats(epoch, verbose)
             self.eta.set_value(
                 self.eta_strategy(self.eta.get_value(), epoch)
             )
     
-    def train(self, epochs, eta, minibatch_size, mu=0.0, eta_strategy=None, collect_stats_every_nth_epoch=1):
+    def train(self, epochs, eta, minibatch_size, mu=0.0, eta_strategy=None, collect_stats_every_nth_epoch=1, verbose=None):
         self.set_training_params(eta, mu, minibatch_size, eta_strategy, collect_stats_every_nth_epoch)
-        self.cost = self.MSSE
+        self.cost = self.MSE
         
         self.collect_stats(0)        
         print('Starting training with initial cost:', self.get_cost(self.training_set))
         start_time = time()
         for epoch in range(1, epochs+1):
-            self.perform_training_epoch(epoch)
+            self.perform_training_epoch(epoch, verbose)
         time_elapsed = time() - start_time
         print('Training Time:', time_elapsed, 'Per Epoch ~', time_elapsed/epochs)
 
@@ -184,7 +201,8 @@ class Autoencoder:
                 sequences=[T.arange(C.shape[0])],
                 non_sequences=[self.distance_closest_cluster,self.current_cluster_assignment]
             )
-        self.clustering_cost = self.per_cluster_cost.sum()
+        #self.clustering_cost = self.per_cluster_cost.sum()
+        self.clustering_cost = self.distance_closest_cluster.mean()
 
         def calculate_cluster_centroid(k, H, assignment):
             assigned_observations = (H[T.eq(assignment, T.fill(assignment,k)).nonzero()])
@@ -218,25 +236,26 @@ class Autoencoder:
     def update_cluster_centroids(self,data):
         self.C.set_value( theano.function([self.X], self.cluster_centroids)(data) )
 
-    def cluster(self, epochs, eta, q, k, minibatch_size, mu=0.0, q_msse_threshold=-1, eta_strategy=None, collect_stats_every_nth_epoch=1, plot_clusters_every_nth_epoch=-1):
+    def cluster(self, epochs, eta, q, k, minibatch_size, mu=0.0, q_mse_threshold=-1, eta_strategy=None, collect_stats_every_nth_epoch=1, plot_clusters_every_nth_epoch=-1, verbose=None):
         self.set_training_params(eta, mu, minibatch_size, eta_strategy, collect_stats_every_nth_epoch)
         
         # Clustering Preparation
-        clustering_sample = sklearn.utils.shuffle(self.training_set, n_samples=minibatch_size)
+        clustering_sample = self.training_set #sklearn.utils.shuffle(self.training_set, n_samples=minibatch_size)
         self.scaffold_clustering(data=clustering_sample, k=k, q=q)
-        if q_msse_threshold > 0:
+        if q_mse_threshold > 0:
             self.q.set_value(0)
-            self.cost = self.MSSE
+            self.cost = self.MSE
             self.clustering = False
         else: 
-            self.cost = self.MSSE + (self.q * self.clustering_cost) 
+            self.cost = self.MSE + (self.q * self.clustering_cost) 
             self.clustering = True
+            self.scaffold_backprop()
 
         self.collect_stats(0)
         print('Starting training with initial cost:', self.get_cost(self.training_set))
         start_time = time()
         for epoch in range(1, epochs+1):
-            self.perform_training_epoch(epoch)
+            self.perform_training_epoch(epoch, verbose)
 
             if(self.clustering):
                 self.update_cluster_centroids(clustering_sample)
@@ -245,13 +264,13 @@ class Autoencoder:
                     self.plot_clusters(clustering_sample, epoch)          
             else:
                 if epoch % plot_clusters_every_nth_epoch == 0:
-                    if q_msse_threshold > 0:
-                        msse = theano.function([self.X],self.MSSE)(clustering_sample)
-                        print('Epoch', epoch, 'Sample MSSE:', msse)
-                        if msse < q_msse_threshold:
-                            print('Epoch', epoch, ': Sample MSSE', msse, 'is now smaller than Q-MSSE-Threshold', q_msse_threshold)
+                    if q_mse_threshold > 0:
+                        mse = theano.function([self.X],self.MSE)(self.training_set)
+                        print('Epoch', epoch, 'MSE:', mse)
+                        if mse < q_mse_threshold:
+                            print('Epoch', epoch, ': MSE', mse, 'is now smaller than Q-MSE-Threshold', q_mse_threshold)
                             print('Beginning clustering.')
-                            self.cost = self.MSSE + (self.q * self.clustering_cost)  
+                            self.cost = self.MSE + (self.q * self.clustering_cost)  
                             self.q.set_value(q)
                             self.clustering = True
                             self.update_cluster_assignment(clustering_sample)
@@ -273,21 +292,23 @@ class Autoencoder:
     #################### LOGGING AND PLOTTING #####################
     ###############################################################
 
-    def collect_stats(self, epoch):
+    def collect_stats(self, epoch, verbose=False):
         current = {
             'epoch': epoch,
             'eta': np.asscalar(self.eta.get_value())
         }
         if self.training_set is not None:
-            theano_computations = [self.MSSE]
+            theano_computations = [self.MSE]
             theano_compute = theano.function([self.X],theano_computations)
             if self.clustering:
                 theano_computations.append(self.clustering_cost)
                 theano_computations.append(self.clustering_cost * self.q)
-            current['MSSE'], *other_results = (np.asscalar(arr) for arr in theano_compute(self.training_set))
+            current['MSE'], *other_results = (np.asscalar(arr) for arr in theano_compute(self.training_set))
             if len(other_results) > 0:
                 current['Clustering Cost'], current['Clustering Cost * q'] = other_results
         self.stats.append(current)
+        if verbose:
+            print('Epoch', epoch, 'MSE:', current['MSE'])
 
     def get_stats(self, as_df=False):
         if as_df:
@@ -301,7 +322,7 @@ class Autoencoder:
     def plot_stats(self, stacked=False, title=None):
         stats = self.get_stats(as_df=True)
         if len(stats) > 1:
-            graphs = ['MSSE']
+            graphs = ['MSE']
             if stacked:
                 if self.clustering:
                     graphs.append('Clustering Cost * q')
@@ -318,8 +339,8 @@ class Autoencoder:
         if np_cluster_centroids.shape[0] > len(colors):
             colors = ['#8dd3c7','#ffffb3','#bebada','#fb8072','#80b1d3','#fdb462','#b3de69','#fccde5','#d9d9d9','#bc80bd','#ccebc5','#ffed6f'] + colors
         plt.figure()
-        #plt.axis([0,1,0,1])
-        plt.axis('equal')
+        plt.axis([0,1,0,1])
+        #plt.axis('equal')
         if np_H.shape[1] < 2:
             y = np.ones_like(np_H)
         else:
