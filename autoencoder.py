@@ -19,12 +19,13 @@ class Autoencoder:
     ################### Network Initialization ####################
     ###############################################################
 
-    def __init__(self, layers, training_set, activation_fn=T.nnet.sigmoid, initialize_parameters_method='random'):
+    def __init__(self, layers, training_set, validation_set, activation_fn=T.nnet.sigmoid, initialize_parameters_method='random'):
         self.layers = layers
         self.layer_count = len(layers)
         self.features_count = layers[0]
         self.activation_fn = activation_fn
         self.training_set = training_set
+        self.validation_set = validation_set
         X = self.X = T.dmatrix('X')
         W = self.W = []
         b = self.b = []
@@ -56,6 +57,7 @@ class Autoencoder:
         Y = self.Y = A[-1]
         self.encode = theano.function([X],H)
         self.decode = theano.function([H],Y)
+        self.feedforward = theano.function([X],Y)
         
         self.euclidian_distance = lambda a, b: ((a-b)**2).sum(axis=1)
         self.MSSE = self.euclidian_distance(X,Y).mean()
@@ -139,6 +141,8 @@ class Autoencoder:
         else:
             self.minibatch_size = minibatch_size
         self.stats = []
+        self.last_validation_cost = self.get_cost(self.validation_set)
+        self.last_validation_cost_age = 0
 
     def perform_training_epoch(self, epoch, verbose=None):
         shuffled_indices = sklearn.utils.shuffle(np.arange(0,len(self.training_set)))
@@ -151,6 +155,8 @@ class Autoencoder:
             minibatch =  self.training_set[minibatch_indices]
             self.update_weights_and_biases(minibatch)
 
+        self.validation_performance_is_decreasing = self.is_validation_performance_decreasing()
+
         if (epoch % self.collect_stats_every_nth_epoch) == 0:
             self.collect_stats(epoch, verbose)
             self.eta.set_value(
@@ -162,12 +168,27 @@ class Autoencoder:
         self.cost = self.MSE
         
         self.collect_stats(0)        
-        print('Starting training with initial cost:', self.get_cost(self.training_set))
+        print('Starting training with initial training cost:', self.get_cost(self.training_set), 'and validation cost:', self.get_cost(self.validation_set))
         start_time = time()
         for epoch in range(1, epochs+1):
             self.perform_training_epoch(epoch, verbose)
+            if self.validation_performance_is_decreasing:
+                print('Epoch', epoch, '- Stopping training to avoid overfitting')
+                break
+
         time_elapsed = time() - start_time
         print('Training Time:', time_elapsed, 'Per Epoch ~', time_elapsed/epochs)
+
+    def is_validation_performance_decreasing(self):
+        self.current_validation_cost = self.get_cost(self.validation_set)
+        if self.current_validation_cost >= self.last_validation_cost:
+            self.last_validation_cost_age += 1
+        else:
+            self.last_validation_cost_age = 0
+            self.last_validation_cost = self.current_validation_cost
+        if self.last_validation_cost_age > 15:
+            return True
+        else: return False
 
 
 
@@ -252,10 +273,13 @@ class Autoencoder:
             self.scaffold_backprop()
 
         self.collect_stats(0)
-        print('Starting training with initial cost:', self.get_cost(self.training_set))
+        print('Starting training with initial training cost:', self.get_cost(self.training_set), 'and validation cost:', self.get_cost(self.validation_set))
         start_time = time()
         for epoch in range(1, epochs+1):
             self.perform_training_epoch(epoch, verbose)
+            if self.validation_performance_is_decreasing:
+                print('Epoch', epoch, '- Stopping training to avoid overfitting')
+                break
 
             if(self.clustering):
                 self.update_cluster_centroids(clustering_sample)
@@ -295,7 +319,8 @@ class Autoencoder:
     def collect_stats(self, epoch, verbose=False):
         current = {
             'epoch': epoch,
-            'eta': np.asscalar(self.eta.get_value())
+            'eta': np.asscalar(self.eta.get_value()),
+            'MSE Validation': np.asscalar(self.last_validation_cost) # rely on this to be updated every epoch
         }
         if self.training_set is not None:
             theano_computations = [self.MSE]
@@ -308,7 +333,7 @@ class Autoencoder:
                 current['Clustering Cost'], current['Clustering Cost * q'] = other_results
         self.stats.append(current)
         if verbose:
-            print('Epoch', epoch, 'MSE:', current['MSE'])
+            print('Epoch', epoch, 'MSE:', current['MSE'], 'MSE Validation:', current['MSE Validation'])
 
     def get_stats(self, as_df=False):
         if as_df:
@@ -322,7 +347,7 @@ class Autoencoder:
     def plot_stats(self, stacked=False, title=None):
         stats = self.get_stats(as_df=True)
         if len(stats) > 1:
-            graphs = ['MSE']
+            graphs = ['MSE', 'MSE Validation']
             if stacked:
                 if self.clustering:
                     graphs.append('Clustering Cost * q')
