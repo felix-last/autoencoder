@@ -30,8 +30,8 @@ class Autoencoder:
         b = self.b = []
         Z = self.Z = []
         A = self.A = [X]
-        prev_grad_W = self.prev_grad_W = []
-        prev_grad_b = self.prev_grad_b = []
+        prev_delta_W = self.prev_delta_W = []
+        prev_delta_b = self.prev_delta_b = []
 
         eta = self.eta = theano.shared(0.0,name='eta')
         mu = self.mu = theano.shared(0.0, name='mu')
@@ -40,8 +40,8 @@ class Autoencoder:
             if layer is 0: continue
             W_n = self.initialize_weights(rows=layers[layer-1], columns=units, number=layer, method=initialize_parameters_method)
             b_n = self.initialize_biases(units, layer, method=initialize_parameters_method)
-            prev_grad_W_n = theano.shared(np.zeros((layers[layer-1], units)), 'prev_grad_W_n')
-            prev_grad_b_n = theano.shared(np.zeros(units), 'prev_grad_b_n')
+            prev_delta_W_n = theano.shared(np.zeros((layers[layer-1], units)), 'prev_delta_W_n')
+            prev_delta_b_n = theano.shared(np.zeros(units), 'prev_delta_b_n')
             Z_n = A[layer-1].dot(W_n) + b_n
             A_n = activation_fn(Z_n)
 
@@ -49,8 +49,8 @@ class Autoencoder:
             b.append(b_n)
             Z.append(Z_n)
             A.append(A_n)
-            prev_grad_W.append(prev_grad_W_n)
-            prev_grad_b.append(prev_grad_b_n)
+            prev_delta_W.append(prev_delta_W_n)
+            prev_delta_b.append(prev_delta_b_n)
 
         H = self.H = A[self.layer_count // 2] # middle hidden layer, mapping function
         Y = self.Y = A[-1]
@@ -98,44 +98,25 @@ class Autoencoder:
         W = self.W
         b = self.b
         eta = self.eta
-        prev_grad_W = self.prev_grad_W
-        prev_grad_b = self.prev_grad_b
+        prev_delta_W = self.prev_delta_W
+        prev_delta_b = self.prev_delta_b
         mu = self.mu
         
-        gradients_wrt_w = []
-        gradients_wrt_b = []
         updates_list = []
-        
-        def fn_grad_a_wrt_z(Z):
-            A = self.activation_fn(Z) # have to redefine A here because theano doesn't recognize the subtensor relationship
-            return theano.tensor.jacobian(A, wrt=Z).diagonal()
 
         for layer in range(1, self.layer_count):
-            grad_a_wrt_z, _ = theano.scan(
-                    fn=fn_grad_a_wrt_z, 
-                    sequences=[Z[-layer]]
-                )
-            
-            if layer is 1:
-                first_term = T.grad(self.cost, wrt=A[-1]).mean(axis=0)
-            else:
-                first_term = ( W[-(layer-1)].dot(error_l) )
-
-            error_l = first_term * grad_a_wrt_z.mean(axis=0)
-
             W_n = W[-layer]
             b_n = b[-layer]
+            prev_delta_W_n = prev_delta_W[-layer]
+            prev_delta_b_n = prev_delta_b[-layer]
 
-            A_prime = A[-(layer+1)].sum(axis=0)
-            A_prime = A_prime.reshape((A_prime.shape[0], 1)) # shape to (k x 1) so that matrix multiplication is possible
-            
-            delta_W_n = -eta * (A_prime * error_l) + (mu * prev_grad_W[-layer])
-            delta_b_n = -eta * (error_l) + (mu * prev_grad_b[-layer])
+            delta_W_n = -eta * T.grad(cost, wrt=W_n) + mu * prev_delta_W_n
+            delta_b_n = -eta * T.grad(cost, wrt=b_n) + mu * prev_delta_b_n
             
             updates_list.append((W_n, W_n + delta_W_n))
             updates_list.append((b_n, b_n + delta_b_n))
-            updates_list.append((prev_grad_W[-layer], delta_W_n))
-            updates_list.append((prev_grad_b[-layer], delta_b_n))
+            updates_list.append((prev_delta_W_n, delta_W_n))
+            updates_list.append((prev_delta_b_n, delta_b_n))
         self.update_weights_and_biases = theano.function([X], updates=updates_list)
     
     def set_training_params(self, eta, mu, minibatch_size, eta_strategy, collect_stats_every_nth_epoch):
