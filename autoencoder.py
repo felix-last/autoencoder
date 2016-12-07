@@ -60,14 +60,19 @@ class Autoencoder:
         self.feedforward = theano.function([X],Y)
         
         self.euclidian_distance = lambda a, b: ((a-b)**2).sum(axis=1)
+        # mean of sum of squares cost
         self.MSSE = self.euclidian_distance(X,Y).mean()
+        # mean of mean squared errors cost
         self.MSE = ((X-Y)**2).mean()
+        # cross-entropy cost
+        self.CE = - T.mean( X * T.log(Y) + (T.ones_like(X)-X) * T.log(T.ones_like(X)-Y) )
+        self.default_cost = self.CE
 
         self.stats = []
-        self.cost = self.MSE
+        self.cost = self.default_cost
         self.get_cost = theano.function([self.X], self.cost)
-        self.scaffold_backprop()
         self.clustering = False
+        self.scaffold_backprop()
 
     def initialize_weights(self, rows, columns, number, method='random'):
         if method is 'random':
@@ -112,10 +117,8 @@ class Autoencoder:
         updates_list = []
 
         for layer in range(1, self.layer_count):
-            if layer <= self.layer_count / 2: # behind hidden layer
-                cost = self.MSE
-            else:
-                cost = self.cost
+            cost = self.cost
+            if self.clustering and layer <= self.layer_count / 2: cost = self.default_cost # only encoding weights can be trained with clustering cost
 
             W_n = W[-layer]
             b_n = b[-layer]
@@ -165,16 +168,14 @@ class Autoencoder:
     
     def train(self, epochs, eta, minibatch_size, mu=0.0, eta_strategy=None, collect_stats_every_nth_epoch=1, verbose=None):
         self.set_training_params(eta, mu, minibatch_size, eta_strategy, collect_stats_every_nth_epoch)
-        self.cost = self.MSE
+        self.cost = self.default_cost
         
         self.collect_stats(0)        
         print('Starting training with initial training cost:', self.get_cost(self.training_set), 'and validation cost:', self.get_cost(self.validation_set))
         start_time = time()
         for epoch in range(1, epochs+1):
             self.perform_training_epoch(epoch, verbose)
-            if self.validation_performance_is_decreasing:
-                print('Epoch', epoch, '- Stopping training to avoid overfitting')
-                break
+            if self.validation_performance_is_decreasing: break
 
         time_elapsed = time() - start_time
         print('Training Time:', time_elapsed, 'Per Epoch ~', time_elapsed/epochs)
@@ -186,7 +187,8 @@ class Autoencoder:
         else:
             self.last_validation_cost_age = 0
             self.last_validation_cost = self.current_validation_cost
-        if self.last_validation_cost_age > 15:
+        if self.last_validation_cost_age >= 15:
+            print('Validation error has been unchanged or decreasing for', self.last_validation_cost_age, 'epochs. Stopping training.')
             return True
         else: return False
 
@@ -227,7 +229,7 @@ class Autoencoder:
 
         def calculate_cluster_centroid(k, H, assignment):
             assigned_observations = (H[T.eq(assignment, T.fill(assignment,k)).nonzero()])
-            furthest_observation_from_its_centroid = H[T.argmin(self.distance_closest_cluster)]
+            furthest_observation_from_its_centroid = H[T.argmax(self.distance_closest_cluster)]
             return theano.ifelse.ifelse(
                 T.neq(assigned_observations.size, 0), # if there are assigned_observations
                 assigned_observations.mean(axis=0), # then return their mean,
@@ -253,9 +255,11 @@ class Autoencoder:
         self.current_cluster_assignment = theano.shared((np.random.choice(k, data.shape[0])).astype('int64'), 'current_cluster_assignment')
 
     def update_cluster_assignment(self,data):
-        self.current_cluster_assignment.set_value( theano.function([self.X], self.cluster_assignment)(data))
+        self.current_cluster_assignment.set_value(self.get_cluster_assigment(data) )
     def update_cluster_centroids(self,data):
         self.C.set_value( theano.function([self.X], self.cluster_centroids)(data) )
+    def get_cluster_assigment(self,data):
+        return theano.function([self.X], self.cluster_assignment)(data)
 
     def cluster(self, epochs, eta, q, k, minibatch_size, mu=0.0, eta_strategy=None, collect_stats_every_nth_epoch=1, plot_clusters_every_nth_epoch=-1, verbose=None):
         self.set_training_params(eta, mu, minibatch_size, eta_strategy, collect_stats_every_nth_epoch)
@@ -263,7 +267,7 @@ class Autoencoder:
         # Clustering Preparation
         clustering_sample = self.training_set #sklearn.utils.shuffle(self.training_set, n_samples=minibatch_size)
         self.scaffold_clustering(data=clustering_sample, k=k, q=q)
-        self.cost = self.MSE + (self.q * self.clustering_cost) 
+        self.cost = self.default_cost + (self.q * self.clustering_cost) 
         self.clustering = True
         self.scaffold_backprop()
 
@@ -272,9 +276,7 @@ class Autoencoder:
         start_time = time()
         for epoch in range(1, epochs+1):
             self.perform_training_epoch(epoch, verbose)
-            if self.validation_performance_is_decreasing:
-                print('Epoch', epoch, '- Stopping training to avoid overfitting')
-                break
+            if self.validation_performance_is_decreasing: break
 
             self.update_cluster_centroids(clustering_sample)
             self.update_cluster_assignment(clustering_sample)
@@ -301,20 +303,20 @@ class Autoencoder:
         current = {
             'epoch': epoch,
             'eta': np.asscalar(self.eta.get_value()),
-            'MSE Validation': np.asscalar(self.last_validation_cost) # rely on this to be updated every epoch
+            'Cost Validation': np.asscalar(self.last_validation_cost) # rely on this to be updated every epoch
         }
         if self.training_set is not None:
-            theano_computations = [self.MSE]
-            theano_compute = theano.function([self.X],theano_computations)
+            theano_computations = [self.cost]
             if self.clustering:
                 theano_computations.append(self.clustering_cost)
                 theano_computations.append(self.clustering_cost * self.q)
-            current['MSE'], *other_results = (np.asscalar(arr) for arr in theano_compute(self.training_set))
+            theano_compute = theano.function([self.X],theano_computations)
+            current['Cost'], *other_results = (np.asscalar(arr) for arr in theano_compute(self.training_set))
             if len(other_results) > 0:
                 current['Clustering Cost'], current['Clustering Cost * q'] = other_results
         self.stats.append(current)
         if verbose:
-            print('Epoch', epoch, 'MSE:', current['MSE'], 'MSE Validation:', current['MSE Validation'])
+            print('Epoch', epoch, 'Cost:', current['Cost'], 'Cost Validation:', current['Cost Validation'])
 
     def get_stats(self, as_df=False):
         if as_df:
@@ -328,7 +330,7 @@ class Autoencoder:
     def plot_stats(self, stacked=False, title=None):
         stats = self.get_stats(as_df=True)
         if len(stats) > 1:
-            graphs = ['MSE', 'MSE Validation']
+            graphs = ['Cost', 'Cost Validation']
             if stacked:
                 if self.clustering:
                     graphs.append('Clustering Cost * q')
@@ -337,7 +339,7 @@ class Autoencoder:
                 return stats[graphs].plot()
         else:
             print('Nothing to plot')
-    def plot_clusters(self, data, epoch):
+    def plot_clusters(self, data, epoch='', fixed_view=True):
         np_H = theano.theano.function([self.X],self.H)(data)
         np_assignment = self.current_cluster_assignment.get_value()#theano.function([self.X], self.cluster_assignment)(data)
         np_cluster_centroids = self.C.get_value()#theano.function([self.X], self.cluster_centroids)(data)
@@ -345,8 +347,7 @@ class Autoencoder:
         if np_cluster_centroids.shape[0] > len(colors):
             colors = ['#8dd3c7','#ffffb3','#bebada','#fb8072','#80b1d3','#fdb462','#b3de69','#fccde5','#d9d9d9','#bc80bd','#ccebc5','#ffed6f'] + colors
         plt.figure()
-        plt.axis([0,1,0,1])
-        #plt.axis('equal')
+        plt.axis([0,1,0,1]) if fixed_view else plt.axis('equal')
         if np_H.shape[1] < 2:
             y = np.ones_like(np_H)
         else:
