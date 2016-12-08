@@ -95,6 +95,17 @@ class Autoencoder:
             b_n, name="b{0}".format(number)
         )
 
+    def get_parameters(self):
+        return [w.get_value() for w in self.W], [b.get_value() for b in self.b]
+
+    def set_parameters(self, params):
+        weights, biases = params
+        for i, w in enumerate(weights):
+            self.W[i].set_value(w)
+        for i, b in enumerate(biases):
+            self.b[i].set_value(b)
+
+
 
 
 
@@ -144,7 +155,7 @@ class Autoencoder:
         else:
             self.minibatch_size = minibatch_size
         self.stats = []
-        self.last_validation_cost = self.get_cost(self.validation_set)
+        self.current_validation_cost = self.last_validation_cost = self.get_cost(self.validation_set)
         self.last_validation_cost_age = 0
 
     def perform_training_epoch(self, epoch, verbose=None):
@@ -155,7 +166,8 @@ class Autoencoder:
             if end_index >= len(self.training_set):
                 end_index = len(self.training_set) - 1
             minibatch_indices = shuffled_indices[start_index:end_index]
-            minibatch =  self.training_set[minibatch_indices]
+            if len(minibatch_indices) < 1: break
+            minibatch = self.training_set[minibatch_indices]
             self.update_weights_and_biases(minibatch)
 
         self.validation_performance_is_decreasing = self.is_validation_performance_decreasing()
@@ -188,7 +200,7 @@ class Autoencoder:
             self.last_validation_cost_age = 0
             self.last_validation_cost = self.current_validation_cost
         if self.last_validation_cost_age >= 15:
-            print('Validation error has been unchanged or decreasing for', self.last_validation_cost_age, 'epochs. Stopping training.')
+            print('Validation set performance has been unchanged or decreasing for', self.last_validation_cost_age, 'epochs. Stopping training.')
             return True
         else: return False
 
@@ -303,7 +315,7 @@ class Autoencoder:
         current = {
             'epoch': epoch,
             'eta': np.asscalar(self.eta.get_value()),
-            'Cost Validation': np.asscalar(self.last_validation_cost) # rely on this to be updated every epoch
+            'Cost Validation': np.asscalar(self.current_validation_cost) # rely on this to be updated every epoch
         }
         if self.training_set is not None:
             theano_computations = [self.cost]
