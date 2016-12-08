@@ -194,7 +194,7 @@ class Autoencoder:
 
     def is_validation_performance_decreasing(self):
         self.current_validation_cost = self.get_cost(self.validation_set)
-        if self.current_validation_cost >= self.last_validation_cost || np.isclose(self.current_validation_cost, self.last_validation_cost):
+        if self.current_validation_cost >= self.last_validation_cost:
             self.last_validation_cost_age += 1
         else:
             self.last_validation_cost_age = 0
