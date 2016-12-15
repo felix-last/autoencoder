@@ -3,6 +3,10 @@ import sklearn.linear_model
 import sklearn.ensemble
 import sklearn.ensemble
 import sklearn.svm
+import numpy as np
+
+import pandas as pd
+from IPython.display import display
 
 def evaluate_clustering_methods(methods):
 	""" 
@@ -44,9 +48,18 @@ def classify(X, y, X_validate):
 
 def evaluate_classification(y, y_predicted):
 	evaluation = {}
-	for prediction in y_predicted:
-		# F-Measure
-		evaluation['Weighted F-Measure'] = sklearn.metrics.f1_score(y, y_predicted, average='weighted')
-		# G-Mean
-		# AUC
+	# convert the labels to multi-label-indicator format (one-hot)
+	transformer = sklearn.preprocessing.MultiLabelBinarizer(classes=np.unique(np.concatenate([y,y_predicted])))
+	y_multilabel = transformer.fit_transform([[label] for label in y])
+	y_predicted_multilabel = transformer.fit_transform([[label] for label in y_predicted])
+	# F-Measure
+	evaluation['Balanced F-Measure'] = sklearn.metrics.f1_score(y, y_predicted, average='macro')
+	# G-Mean
+	evaluation['G-Measure / Fowlkes-Mallows Score'] = sklearn.metrics.fowlkes_mallows_score(y, y_predicted)
+	# AUC
+	evaluation['ROC AUC Score'] = sklearn.metrics.roc_auc_score(y_multilabel, y_predicted_multilabel, average='micro')
+
 	return evaluation
+
+
+# check http://stackoverflow.com/questions/23339523/sklearn-cross-validation-with-multiple-scores
