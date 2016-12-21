@@ -2,9 +2,15 @@ import matplotlib.pyplot as plt
 import pickle, gzip
 import numpy as np
 
-def plot_mnist(data, labels=[]):#, reconstruction=[]):
-    if len(labels) is 0:
+def plot_mnist(data, labels=np.zeros((0,)), count=-1):#, reconstruction=[]):
+    if data.size < 2:
+        print('Can\'t plot: empty input data.')
+        return
+    if labels.size is 0:
         labels = np.ones(data.shape[0]) * -1    
+    if count > 0:
+        if data.shape[0] < count: count = data.shape[0]
+        data, labels = data[0:count], labels[0:count]
     # split into 20 chunks
     for (data_portion, labels_portion) in [(data[i:i+20 ], labels[i:i+20]) for i in range(0, data.shape[0], 20)]:
         plt.figure(figsize=(20,2))

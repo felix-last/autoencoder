@@ -4,6 +4,7 @@ import sklearn.ensemble
 import sklearn.ensemble
 import sklearn.svm
 import numpy as np
+import warnings
 
 import pandas as pd
 from IPython.display import display
@@ -53,7 +54,11 @@ def evaluate_classification(y, y_predicted):
 	y_multilabel = transformer.fit_transform([[label] for label in y])
 	y_predicted_multilabel = transformer.fit_transform([[label] for label in y_predicted])
 	# F-Measure
-	evaluation['Balanced F-Measure'] = sklearn.metrics.f1_score(y, y_predicted, average='macro')
+	# If our classifier only predicts majority class, F1 score is set to 0 for minority class.
+	# Since we apply an unweighted average of F1 scores of each class, that's ok - it still punishes the classifier.
+	with warnings.catch_warnings():
+		warnings.filterwarnings(action='ignore', category=sklearn.exceptions.UndefinedMetricWarning)
+		evaluation['Balanced F-Measure'] = sklearn.metrics.f1_score(y, y_predicted, average='macro')
 	# G-Mean
 	evaluation['G-Measure / Fowlkes-Mallows Score'] = sklearn.metrics.fowlkes_mallows_score(y, y_predicted)
 	# AUC

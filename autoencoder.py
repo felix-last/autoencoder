@@ -19,13 +19,18 @@ class Autoencoder:
     ################### Network Initialization ####################
     ###############################################################
 
-    def __init__(self, layers, training_set, validation_set, activation_fn=T.nnet.sigmoid, initialize_parameters_method='random'):
+    def __init__(self, layers, training_set, validation_set=None, activation_fn=T.nnet.sigmoid, initialize_parameters_method='random'):
         self.layers = layers
         self.layer_count = len(layers)
         self.features_count = layers[0]
-        self.activation_fn = activation_fn
+        self.activation_fn = [T.nnet.relu for i in range(0,self.layer_count)]
+        self.activation_fn[0] = None
+        self.activation_fn[-1] = activation_fn
         self.training_set = training_set
-        self.validation_set = validation_set
+        if validation_set is not None:
+            self.validation_set = validation_set
+        else:
+            self.validation_set = self.training_set
         X = self.X = T.dmatrix('X')
         W = self.W = []
         b = self.b = []
@@ -44,7 +49,7 @@ class Autoencoder:
             prev_delta_W_n = theano.shared(np.zeros((layers[layer-1], units)), 'prev_delta_W_n')
             prev_delta_b_n = theano.shared(np.zeros(units), 'prev_delta_b_n')
             Z_n = A[layer-1].dot(W_n) + b_n
-            A_n = activation_fn(Z_n)
+            A_n = self.activation_fn[layer](Z_n)
 
             W.append(W_n)
             b.append(b_n)
@@ -70,13 +75,16 @@ class Autoencoder:
 
         self.stats = []
         self.cost = self.default_cost
-        self.get_cost = theano.function([self.X], self.cost)
+        self.get_cost = lambda data: theano.function([self.X], self.cost)(data)
         self.clustering = False
+        self.early_stopping_patience = 15
         self.scaffold_backprop()
 
     def initialize_weights(self, rows, columns, number, method='random'):
         if method is 'random':
             W_n = np.random.randn(rows, columns)
+        if method is 'random_positive':
+            W_n = np.random.rand(rows, columns)
         elif method is 'ones':
             W_n = np.ones((rows, columns))
         elif method is 'zeros':
@@ -87,6 +95,8 @@ class Autoencoder:
     def initialize_biases(self, rows, number, method='random'):
         if method is 'random':
             b_n = np.random.randn(rows)
+        if method is 'random_positive':
+            b_n = np.random.rand(rows)
         elif method is 'ones':
             b_n = np.ones(rows)
         elif method is 'zeros':
@@ -96,13 +106,17 @@ class Autoencoder:
         )
 
     def get_parameters(self):
-        return [w.get_value() for w in self.W], [b.get_value() for b in self.b]
+        params = []
+        for w, b in zip(self.W, self.b):
+            params.append(w.get_value())
+            params.append(b.get_value())
+        return params
 
     def set_parameters(self, params):
-        weights, biases = params
-        for i, w in enumerate(weights):
+        it = iter(params)
+        zipped_params = zip(it,it)
+        for i, (w, b) in enumerate(zipped_params):
             self.W[i].set_value(w)
-        for i, b in enumerate(biases):
             self.b[i].set_value(b)
 
 
@@ -199,7 +213,7 @@ class Autoencoder:
         else:
             self.last_validation_cost_age = 0
             self.last_validation_cost = self.current_validation_cost
-        if self.last_validation_cost_age >= 15:
+        if self.last_validation_cost_age >= self.early_stopping_patience:
             print('Validation set performance has been unchanged or decreasing for', self.last_validation_cost_age, 'epochs. Stopping training.')
             return True
         else: return False
@@ -253,8 +267,10 @@ class Autoencoder:
             non_sequences=[H,self.current_cluster_assignment]
         )
         
-        self.update_cluster_centroids(data)
-        self.update_cluster_assignment(data)
+        # perform some initial k-means iterations to lower initial cost
+        for i in range(0,10):
+            self.update_cluster_centroids(data)
+            self.update_cluster_assignment(data)
 
     def initialize_clusters_and_assignment(self, data, k, q):
         h_dim = self.layers[self.layer_count // 2] # number of units on mapping layer
@@ -267,20 +283,20 @@ class Autoencoder:
         self.current_cluster_assignment = theano.shared((np.random.choice(k, data.shape[0])).astype('int64'), 'current_cluster_assignment')
 
     def update_cluster_assignment(self,data):
-        self.current_cluster_assignment.set_value(self.get_cluster_assigment(data) )
+        self.current_cluster_assignment.set_value(self.get_cluster_assignment(data) )
     def update_cluster_centroids(self,data):
         self.C.set_value( theano.function([self.X], self.cluster_centroids)(data) )
-    def get_cluster_assigment(self,data):
+    def get_cluster_assignment(self,data):
         return theano.function([self.X], self.cluster_assignment)(data)
 
     def cluster(self, epochs, eta, q, k, minibatch_size, mu=0.0, eta_strategy=None, collect_stats_every_nth_epoch=1, plot_clusters_every_nth_epoch=-1, verbose=None):
-        self.set_training_params(eta, mu, minibatch_size, eta_strategy, collect_stats_every_nth_epoch)
-        
         # Clustering Preparation
         clustering_sample = self.training_set #sklearn.utils.shuffle(self.training_set, n_samples=minibatch_size)
         self.scaffold_clustering(data=clustering_sample, k=k, q=q)
         self.cost = self.default_cost + (self.q * self.clustering_cost) 
         self.clustering = True
+
+        self.set_training_params(eta, mu, minibatch_size, eta_strategy, collect_stats_every_nth_epoch)
         self.scaffold_backprop()
 
         self.collect_stats(0)
@@ -315,20 +331,20 @@ class Autoencoder:
         current = {
             'epoch': epoch,
             'eta': np.asscalar(self.eta.get_value()),
-            'Cost Validation': np.asscalar(self.current_validation_cost) # rely on this to be updated every epoch
+            'Total Cost Validation': np.asscalar(self.current_validation_cost) # rely on this to be updated every epoch
         }
         if self.training_set is not None:
             theano_computations = [self.cost]
             if self.clustering:
-                theano_computations.append(self.clustering_cost)
+                theano_computations.append(self.default_cost)
                 theano_computations.append(self.clustering_cost * self.q)
             theano_compute = theano.function([self.X],theano_computations)
-            current['Cost'], *other_results = (np.asscalar(arr) for arr in theano_compute(self.training_set))
+            current['Total Cost'], *other_results = (np.asscalar(arr) for arr in theano_compute(self.training_set))
             if len(other_results) > 0:
-                current['Clustering Cost'], current['Clustering Cost * q'] = other_results
+                current['Reconstruction Cost'], current['Clustering Cost * q'] = other_results
         self.stats.append(current)
         if verbose:
-            print('Epoch', epoch, 'Cost:', current['Cost'], 'Cost Validation:', current['Cost Validation'])
+            print('Epoch', epoch, 'Total Cost:', current['Total Cost'], 'Total Cost Validation:', current['Total Cost Validation'])
 
     def get_stats(self, as_df=False):
         if as_df:
@@ -342,17 +358,19 @@ class Autoencoder:
     def plot_stats(self, stacked=False, title=None):
         stats = self.get_stats(as_df=True)
         if len(stats) > 1:
-            graphs = ['Cost', 'Cost Validation']
+            graphs = ['Total Cost', 'Total Cost Validation']
+            if self.clustering:
+                graphs.extend(['Clustering Cost * q', 'Reconstruction Cost'])
             if stacked:
                 if self.clustering:
-                    graphs.append('Clustering Cost * q')
+                    graphs = ['Clustering Cost * q', 'Reconstruction Cost']
                 stats[graphs].plot.area(title=title)
             else:
                 return stats[graphs].plot()
         else:
             print('Nothing to plot')
     def plot_clusters(self, data, epoch='', fixed_view=True):
-        np_H = theano.theano.function([self.X],self.H)(data)
+        np_H = theano.function([self.X],self.H)(data)
         np_assignment = self.current_cluster_assignment.get_value()#theano.function([self.X], self.cluster_assignment)(data)
         np_cluster_centroids = self.C.get_value()#theano.function([self.X], self.cluster_centroids)(data)
         colors = ['b','r','g','c','m','y','k','w']
