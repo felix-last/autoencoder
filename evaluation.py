@@ -60,11 +60,20 @@ def evaluate_classification(y, y_predicted):
 		warnings.filterwarnings(action='ignore', category=sklearn.exceptions.UndefinedMetricWarning)
 		evaluation['Balanced F-Measure'] = sklearn.metrics.f1_score(y, y_predicted, average='macro')
 	# G-Mean
-	evaluation['G-Measure / Fowlkes-Mallows Score'] = sklearn.metrics.fowlkes_mallows_score(y, y_predicted)
+	evaluation['G-Measure'] = g_measure(y, y_predicted)
 	# AUC
-	evaluation['ROC AUC Score'] = sklearn.metrics.roc_auc_score(y_multilabel, y_predicted_multilabel, average='micro')
-
+	try:
+		evaluation['ROC AUC Score'] = sklearn.metrics.roc_auc_score(y_multilabel, y_predicted_multilabel, average='macro')
+	except ValueError:
+		evaluation['ROC AUC Score'] = 0
 	return evaluation
 
+def g_measure(y_true,y_pred):
+	with warnings.catch_warnings():
+		warnings.filterwarnings(action='ignore', category=sklearn.exceptions.UndefinedMetricWarning)
+    	precision = sklearn.metrics.precision_score(y_true, y_pred, average='macro')
+    recall = sklearn.metrics.recall_score(y_true, y_pred, average='macro')
+    g_measure = np.sqrt(precision * recall)
+    return g_measure
 
 # check http://stackoverflow.com/questions/23339523/sklearn-cross-validation-with-multiple-scores
