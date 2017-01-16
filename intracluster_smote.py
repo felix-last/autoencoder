@@ -6,7 +6,7 @@ def compute_synthetic_count(n, ratio):
     return int(np.floor(n - n * ratio))
 
 class IntraclusterSmote:
-    def __init__(self, n_intra, imbalance_ratio_threshold=1.0, decoder=None):
+    def __init__(self, n_intra, imbalance_ratio_threshold=1.0, decoder=None, save_creation_examples=0):
         """ 
         Initialize the model
         Args:
@@ -20,6 +20,8 @@ class IntraclusterSmote:
             self.decoder = decoder
         else:
             self.decoder = lambda X: X
+        self.save_creation_examples = save_creation_examples
+        self.creation_examples = list()
         
     def fit_transform(self, X, y, minority_label, cluster_labels):
         """
@@ -87,4 +89,6 @@ class IntraclusterSmote:
         for i in range(0,n):
             a, b = X[np.random.choice(X.shape[0], size=(2), replace=False)]
             generated[i] = a + ((b-a) * np.random.rand())
+            if self.save_creation_examples > np.random.rand():
+                self.creation_examples.append((a, generated[i], b))
         return generated

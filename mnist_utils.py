@@ -3,6 +3,8 @@ import pickle, gzip
 import numpy as np
 
 def plot_mnist(data, labels=np.zeros((0,)), count=-1):#, reconstruction=[]):
+    data = np.asarray(data)
+    labels = np.asarray(labels)
     if data.size < 2:
         print('Can\'t plot: empty input data.')
         return
@@ -19,8 +21,8 @@ def plot_mnist(data, labels=np.zeros((0,)), count=-1):#, reconstruction=[]):
             pixels = pixels.reshape((28, 28))
             # Plot
             ax = plt.subplot(2, data_portion.shape[0], i + 1)
-            if label >= 0:
-                plt.title(label)
+            # if label >= 0:
+            plt.title(label)
             plt.grid(False)
             plt.axis('off')
             plt.imshow(pixels, cmap='gray')
