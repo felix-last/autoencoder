@@ -76,4 +76,25 @@ def g_measure(y_true,y_pred):
     g_measure = np.sqrt(precision * recall)
     return g_measure
 
+def icc(a,b):
+    a = np.asarray(a)
+    b = np.asarray(b)
+    N = a.shape[0]
+    if N != b.shape[0]:
+        raise 'Shapes do not match'
+    x_dash = (a+b).sum() / (2*N)
+    s2 = ( ((a-x_dash)**2).sum() + ((b-x_dash)**2).sum() ) / (2*(N-1))
+    r = ((a-x_dash)*(b-x_dash)).sum() / ((N-1) * s2)
+    return r
+
+def diversion_score(offspring_list):
+    """Offspring list should be a list of tuples (parent_a, offspring, parent_b), where parent_b is optional"""
+    similarity_sum = 0
+    if len(offspring_list[0]) == 2:
+        offspring_list = [(parent_a, offspring, parent_a) for (parent_a, offspring) in offspring_list]
+    for (parent_a, offspring, parent_b) in offspring_list:
+        similarity_sum += max(icc(parent_a, offspring), icc(parent_b, offspring))
+    return similarity_sum / len(offspring_list)
+
+
 # check http://stackoverflow.com/questions/23339523/sklearn-cross-validation-with-multiple-scores

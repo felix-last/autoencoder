@@ -86,9 +86,10 @@ class IntraclusterSmote:
     def _smote(self, X, n, minority_mask):
         X = X[minority_mask]
         generated = np.empty((n,X.shape[1]))
+        d = self.decoder
         for i in range(0,n):
             a, b = X[np.random.choice(X.shape[0], size=(2), replace=False)]
             generated[i] = a + ((b-a) * np.random.rand())
             if self.save_creation_examples > np.random.rand():
-                self.creation_examples.append((a, generated[i], b))
+                self.creation_examples.append((d(a), d(generated[i]), d(b)))
         return generated
