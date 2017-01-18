@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import pickle, gzip
 import numpy as np
 
-def plot_mnist(data, labels=np.zeros((0,)), count=-1):#, reconstruction=[]):
+def plot(data, labels=np.zeros((0,)), count=-1):#, reconstruction=[]):
     data = np.asarray(data)
     labels = np.asarray(labels)
     if data.size < 2:
@@ -36,6 +36,10 @@ def load_data():
     train_set, validation_set = ( np.reshape(data, (data.shape[0],data.shape[1]*data.shape[2])) / 255 for data in (train_set, validation_set))
     return (train_set,train_set_target), (validation_set,validation_set_target)
 
+def load_binary_imbalanced_1_7(*args, **kwargs):
+    return load_binary_imbalanced(*args, **kwargs, classes=(1,7))
+def load_binary_imbalanced_7_8(*args, **kwargs):
+    return load_binary_imbalanced(*args, **kwargs, classes=(7,8))
 def load_binary_imbalanced(classes=(1,7), ratio=0.1):
     """ Return MNIST data imbalanced. First class will be majority class, second class will be minority class"""
     (train_set,train_set_target), (validation_set,validation_set_target) = load_data()
