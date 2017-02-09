@@ -82,4 +82,4 @@ def load_binary_imbalanced(classes=(1,7), ratio=0.1):
         ), [-1]
     )
     train_set_target, validation_set_target = np.asarray(train_set_target, dtype='int').reshape((train_set_target.shape[0],)), np.asarray(validation_set_target, dtype='int').reshape((validation_set_target.shape[0],))
-    return (train_set[0:2000],train_set_target[0:2000]), (validation_set,validation_set_target)
+    return (train_set[0:4000],train_set_target[0:4000]), (validation_set,validation_set_target)
