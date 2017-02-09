@@ -20,20 +20,27 @@ class IntraclusterSmote:
             self.decoder = decoder
         else:
             self.decoder = lambda X: X
+
         self.save_creation_examples = save_creation_examples
         self.creation_examples = list()
         
-    def fit_transform(self, X, y, minority_label, cluster_labels):
+    def fit_transform(self, X, y, minority_label, cluster_labels, X_unenc=None):
         """
         Perform SMOTE in each cluster
         Args:
-            X (np.array): Input data
-            y (np.array): Mask vector indicating whether an observation belongs to the minority class.
-            c (np.array): Vector of cluster assignment. Must match first dimension of data.
+            X (np.array): Input data (encoded)
+            y (np.array): Vector assigning classes to X.
+            minority_label (y.dtype): The minority class label in y.
+            cluster_labels (np.array): Vector of cluster assignment. Must match first dimension of data.
+            X_unenc: Unencoded X. Used if creation examples are kept.
         """
         minority_mask = (y == minority_label)
 
-        filtered_clusters, density_sum = self._filter_clusters(X, y, minority_mask, cluster_labels)
+        if X_unenc is None:
+            print('X_unenc not given.')
+            X_unenc = X
+
+        filtered_clusters, density_sum = self._filter_clusters(X, y, minority_mask, cluster_labels, X_unenc)
 
         if len(filtered_clusters) < 1:
             # if no minority clusters can be identified, warn and perform regular smote
@@ -41,17 +48,17 @@ class IntraclusterSmote:
             warning_msg = 'No minority clusters found. Performing regular SMOTE. Try increasing the number of clusters. Recommended number of clusters: ' + str(minority_count) + ' to ' + str(majority_count) + '.'
             warnings.warn(warning_msg)
             # regular smote is achieved by pretending the entire dataset is a minority cluster
-            filtered_clusters = [(X,1,minority_mask)]
+            filtered_clusters = [(X,1,minority_mask,X_unenc)]
             density_sum = 1
         
         oversampled_X = X
         oversampled_y = y
         synthetic_X = []
         synthetic_y = []
-        for i, (cluster, density_factor, minority_mask) in enumerate(filtered_clusters):
+        for i, (cluster, density_factor, minority_mask, cluster_unenc) in enumerate(filtered_clusters):
             weight = (1/density_factor) / (density_sum)
             generate_count = int(np.floor(self.n_intra * weight))
-            synthetic_X.append(self._smote(cluster, generate_count, minority_mask))
+            synthetic_X.append(self._smote(cluster, generate_count, minority_mask, cluster_unenc))
             synthetic_y.append(np.full((generate_count,), minority_label, dtype=y.dtype))
 
         d = self.decoder
@@ -66,11 +73,12 @@ class IntraclusterSmote:
 
         return (oversampled_X, oversampled_y), (synthetic_X, synthetic_y)
 
-    def _filter_clusters(self, X, y, minority_mask, cluster_labels):
+    def _filter_clusters(self, X, y, minority_mask, cluster_labels, X_unenc):
         filtered_clusters = list()
         density_sum = 0
         for i in np.unique(cluster_labels):
             cluster = X[cluster_labels == i]
+            cluster_unenc = X_unenc[cluster_labels == i]
             mask = minority_mask[cluster_labels == i]
             minority_count = cluster[mask].shape[0]
             majority_count = cluster[-mask].shape[0]
@@ -80,16 +88,18 @@ class IntraclusterSmote:
                 if average_minority_distance is 0: average_minority_distance = 1e-10 # to avoid division by 0
                 density_factor = minority_count / average_minority_distance**2
                 density_sum += (1 / density_factor)
-                filtered_clusters.append((cluster, density_factor, mask))
+                filtered_clusters.append((cluster, density_factor, mask, cluster_unenc))
         return filtered_clusters, density_sum
 
-    def _smote(self, X, n, minority_mask):
-        X = X[minority_mask]
+    def _smote(self, X, n, minority_mask, X_unenc):
+        X, X_unenc = X[minority_mask], X_unenc[minority_mask]
         generated = np.empty((n,X.shape[1]))
         d = self.decoder
         for i in range(0,n):
-            a, b = X[np.random.choice(X.shape[0], size=(2), replace=False)]
+            a_index, b_index = np.random.choice(X.shape[0], size=(2), replace=False)
+            a, b = X[a_index], X[b_index]
             generated[i] = a + ((b-a) * np.random.rand())
             if self.save_creation_examples > np.random.rand():
-                self.creation_examples.append((d(a), d(generated[i]), d(b)))
+                decode_single_instance = lambda x: d(np.asarray([x]))[0] # use to turn a single instance into multi-row dataset, so the decoder can work with it, then reshape back
+                self.creation_examples.append((X_unenc[a_index], decode_single_instance(generated[i]), X_unenc[b_index]))
         return generated

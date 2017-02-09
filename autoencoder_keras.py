@@ -3,7 +3,7 @@ from keras.models import Model
 import keras.optimizers
 
 class Autoencoder:
-	def __init__(self, layers, training_set, validation_set=None):
+	def __init__(self, layers, training_set, optimizer='adadelta', loss='binary_crossentropy', validation_set=None):
 		self.training_set = training_set
 		self.validation_set = validation_set
 		h_index = len(layers) // 2
@@ -20,7 +20,7 @@ class Autoencoder:
 			)
 
 		self.model = Model(input=self.A[0], output=self.A[-1])
-		self.model.compile(optimizer='adadelta', loss='mse')
+		self.model.compile(optimizer=optimizer, loss=loss)
 		
 		self.encoder = Model(input=self.A[0], output=self.A[h_index])
 		encoded_input = Input(shape=(encoded_dim,))

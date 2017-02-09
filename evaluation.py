@@ -87,14 +87,17 @@ def icc(a,b):
     r = ((a-x_dash)*(b-x_dash)).sum() / ((N-1) * s2)
     return r
 
-def diversion_score(offspring_list):
-    """Offspring list should be a list of tuples (parent_a, offspring, parent_b), where parent_b is optional"""
+def diversion_score(X, offspring_list):
+    """
+    Offspring list should be a list of tuples (parent_a, offspring, parent_b), where parent_b is optional.
+    Result will be in [0,100]. 0 is equivalent to random oversampling, 100 is maximum dissimilarity.
+    """
     similarity_sum = 0
     if len(offspring_list[0]) == 2:
         offspring_list = [(parent_a, offspring, parent_a) for (parent_a, offspring) in offspring_list]
     for (parent_a, offspring, parent_b) in offspring_list:
         similarity_sum += max(icc(parent_a, offspring), icc(parent_b, offspring))
-    return similarity_sum / len(offspring_list)
+    return (1 - (((similarity_sum / len(offspring_list)) + 1) / 2)) * 100 # move from [-1,1] to [0,2], then to [0,1], then inverse, finally move to [0,100]
 
 
 # check http://stackoverflow.com/questions/23339523/sklearn-cross-validation-with-multiple-scores
