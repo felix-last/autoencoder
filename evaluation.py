@@ -47,7 +47,7 @@ def classify(X, y, X_validate):
         predictions[name] = classifier.predict(X_validate) 
     return predictions
 
-def evaluate_classification(y, y_predicted):
+def evaluate_classification(y, y_predicted, minority_label):
     evaluation = {}
     # convert the labels to multi-label-indicator format (one-hot)
     transformer = sklearn.preprocessing.MultiLabelBinarizer(classes=np.unique(np.concatenate([y,y_predicted])))
@@ -66,7 +66,17 @@ def evaluate_classification(y, y_predicted):
         evaluation['ROC AUC Score'] = sklearn.metrics.roc_auc_score(y_multilabel, y_predicted_multilabel, average='macro')
     except ValueError:
         evaluation['ROC AUC Score'] = 0
+    evaluation['Minority Accuracy'] = minority_acc(y, y_predicted, minority_label)
+    evaluation['Majority Accuracy'] = majority_acc(y, y_predicted, minority_label)
     return evaluation
+
+def minority_acc(y, y_pred, minority_label):
+    y_masked, y_pred_masked = y[y == minority_label], y_pred[y == minority_label]
+    return np.where(y_masked == y_pred_masked)[0].size / y_masked.size   
+
+def majority_acc(y, y_pred, minority_label):
+    y_masked, y_pred_masked = y[y != minority_label], y_pred[y != minority_label]
+    return np.where(y_masked == y_pred_masked)[0].size / y_masked.size   
 
 def g_measure(y_true,y_pred):
     with warnings.catch_warnings():
