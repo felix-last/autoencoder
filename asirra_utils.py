@@ -14,10 +14,9 @@ import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 
 # Processing parameters
-SIZE = 224  # for ImageNet models compatibility
-TEST_DIR = './datasets/asirra/preprocessed/test/'
-TRAIN_DIR = './datasets/asirra/preprocessed/train/'
-BASE_DIR = './datasets/asirra/preprocessed/'
+SIZE = 100 
+TRAIN_DIR = "./datasets/asirra/data{0}/train/".format(SIZE)
+BASE_DIR = "./datasets/asirra/data{0}/".format(SIZE)
 
 
 def natural_key(string_):
@@ -39,6 +38,7 @@ def prep_images(paths):
         pixel_width = img_arr.shape[0]
         dim_count = img_arr.shape[2]
         img_arr = img_arr.reshape(pixel_height*pixel_width*dim_count) # reshape to 1d vector
+        img_arr = img_arr / 255
         out.append(img_arr)
     return out
 
@@ -56,11 +56,13 @@ def load_data(shuffle_and_split=True, memmap=False):
     train_dogs = sorted(glob.glob(os.path.join(TRAIN_DIR, 'dog*.jpg')), key=natural_key)
 
     obs_count = len(train_cats)+len(train_dogs)
-    feat_count = 224*224*3
+    feat_count = SIZE*SIZE*3
 
     # reserve some memory - 1 byte per pixel
     # (1 byte * 244 * 244 * 3) * 25 000 = 4.4652 gigabytes
-    data = np.empty((obs_count,feat_count), dtype=np.uint8)
+    # 1 byte = 1e-9 GB
+    print('Loading Asirra Data. Required Memory: ', round(1e-9 * SIZE * SIZE * 3 * obs_count, 2), 'Gigabytes')
+    data = np.empty((obs_count,feat_count), dtype=np.float)
     data[:len(train_cats),:] = prep_images(train_cats)
     data[len(train_cats):,:] = prep_images(train_dogs)
 
@@ -72,7 +74,7 @@ def load_data(shuffle_and_split=True, memmap=False):
     else:
         return (data, target)
 
-def load_data_imbalanced(ratio=0.1, shuffle_and_split=True, memmap=True):
+def load_data_imbalanced(ratio=0.1, shuffle_and_split=True, memmap=False):
     if shuffle_and_split:
         data, target = load_data_imbalanced(ratio=ratio, shuffle_and_split=False, memmap=False)
         X_train, X_test, y_train, y_test = train_test_split(data, target, test_size=ratio)
@@ -114,7 +116,7 @@ def as_memmap(data):
     # flush data and memmap
     del data_memmap, data
     # open memmap in read mode
-    data_memmap = np.memmap(filename=filename,dtype=np.uint8, mode='r', shape=shape)
+    data_memmap = np.memmap(filename=filename,dtype=np.float, mode='r', shape=shape)
     return data_memmap
     
 def plot(data, labels=np.zeros((0,)), count=-1):
@@ -128,9 +130,9 @@ def plot(data, labels=np.zeros((0,)), count=-1):
     if count > 0:
         if data.shape[0] < count: count = data.shape[0]
         data, labels = data[0:count], labels[0:count]
-    # split into chunks of 5
-    for (data_portion, labels_portion) in [(data[i:i+5 ], labels[i:i+5]) for i in range(0, data.shape[0], 5)]:
-        plt.figure(figsize=(10,5))
+    # split into chunks of 10
+    for (data_portion, labels_portion) in [(data[i:i+10 ], labels[i:i+10]) for i in range(0, data.shape[0], 10)]:
+        plt.figure(figsize=(10,2))
         for i, (obs,label) in enumerate(zip(data_portion,labels_portion)):
             # Plot
             ax = plt.subplot(2, data_portion.shape[0], i + 1)
@@ -138,5 +140,5 @@ def plot(data, labels=np.zeros((0,)), count=-1):
             plt.title(label)
             plt.grid(False)
             plt.axis('off')
-            plt.imshow(obs.reshape(224,224,3))
+            plt.imshow(obs.reshape(SIZE,SIZE,3))
         plt.show()
