@@ -1,9 +1,10 @@
 from keras.layers import Input, Dense
 from keras.models import Model
 import keras.optimizers
+from keras import regularizers
 
 class Autoencoder:
-	def __init__(self, layers, training_set, optimizer='adadelta', loss='binary_crossentropy', validation_set=None):
+	def __init__(self, layers, training_set, regularize=True, optimizer='adadelta', loss='binary_crossentropy', validation_set=None):
 		self.training_set = training_set
 		self.validation_set = validation_set
 		h_index = len(layers) // 2
@@ -12,11 +13,22 @@ class Autoencoder:
 		# Set up the layer structure
 		X = Input(shape=(layers[0],))
 		self.A = [X]
+		if regularize:
+			activity_regularizer = regularizers.activity_l2()
+			W_regularizer = regularizers.l2()
+		else:
+			activity_regularizer =  None
+			W_regularizer = None
 		for layer, units in enumerate(layers):
 			if layer is 0: continue
 			activation_fn = 'sigmoid' if layer == len(layers)-1 else 'relu'
 			self.A.append(
-				Dense(units, activation=activation_fn)(self.A[layer-1])
+				Dense(
+					units, 
+					activation=activation_fn, 
+					activity_regularizer=activity_regularizer, 
+					W_regularizer=W_regularizer
+				)(self.A[layer-1])
 			)
 
 		self.model = Model(input=self.A[0], output=self.A[-1])
@@ -34,6 +46,7 @@ class Autoencoder:
 		self.decode = lambda data: self.decoder.predict(data)
 		self.fit = self.model.fit
 		self.get_weights = self.get_parameters = self.model.get_weights
+		self.set_weights = self.set_parameters = self.model.set_weights
 		#self.decoder = Model(input=encoded_input, output=self.A[-1])
 
 
