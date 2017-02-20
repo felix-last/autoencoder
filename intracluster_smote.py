@@ -45,7 +45,7 @@ class IntraclusterSmote:
         if len(filtered_clusters) < 1:
             # if no minority clusters can be identified, warn and perform regular smote
             minority_count, majority_count = X[minority_mask].shape[0], X[-minority_mask].shape[0]
-            warning_msg = 'No minority clusters found. Performing regular SMOTE. Try increasing the number of clusters. Recommended number of clusters: ' + str(minority_count) + ' to ' + str(majority_count) + '.'
+            warning_msg = 'No minority clusters found. Performing regular SMOTE. Try changing the number of clusters. Recommended number of clusters: ' + str(minority_count) + ' to ' + str(majority_count) + '.'
             warnings.warn(warning_msg)
             # regular smote is achieved by pretending the entire dataset is a minority cluster
             filtered_clusters = [(X,1,minority_mask,X_unenc)]
@@ -83,7 +83,7 @@ class IntraclusterSmote:
             minority_count = cluster[mask].shape[0]
             majority_count = cluster[-mask].shape[0]
             imbalance_ratio = (majority_count + 1) / (minority_count + 1)
-            if imbalance_ratio < self.imbalance_ratio_threshold:
+            if imbalance_ratio < self.imbalance_ratio_threshold and minority_count > 1:
                 average_minority_distance = np.mean(euclidean_distances(cluster))
                 if average_minority_distance is 0: average_minority_distance = 1e-10 # to avoid division by 0
                 density_factor = minority_count / average_minority_distance**2
