@@ -1,0 +1,16 @@
+# import imp
+# autoencoder_keras = imp.reload(autoencoder_keras)
+X = datasets['Asirra Imbalanced']['DataRetriever']()[0][0]
+ae = autoencoder_keras.Autoencoder(
+    layers=[X.shape[1],128,64,min(32,X.shape[1]),64,128,X.shape[1]], 
+    training_set=X,
+    regularize=False
+)
+
+ae.fit(X, X,
+    nb_epoch=1500,
+    batch_size=256,
+    shuffle=True,
+    verbose=0,
+    callbacks=[TensorBoard(log_dir=('./results/{0}'.format('pure_training_run')))]
+)

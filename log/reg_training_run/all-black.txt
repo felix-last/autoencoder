@@ -1,0 +1,1 @@
+using activity and weights l2 regularizer, the encoding weights turned very close to 0 after long training. no good, all images turned black.
