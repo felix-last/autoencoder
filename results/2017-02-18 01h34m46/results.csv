@@ -1,0 +1,5 @@
+Dataset,Oversampling,Classifier,Balanced F-Measure,G-Measure,Majority Accuracy,Minority Accuracy,ROC AUC Score
+Asirra Imbalanced,K-Means on Autoencoder Encoding,Logistic Regression,0.368377253814147,0.6243508739809935,0.5147058823529411,1.0,0.7573529411764706
+Asirra Imbalanced,No Oversampling,Logistic Regression,0.4963503649635037,0.4963635881027162,1.0,0.0,0.5
+Asirra Imbalanced,Random Clustering,Logistic Regression,0.4963503649635037,0.4963635881027162,1.0,0.0,0.5
+Asirra Imbalanced,SMOTE,Logistic Regression,0.4963503649635037,0.4963635881027162,1.0,0.0,0.5

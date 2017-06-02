@@ -4,7 +4,7 @@ import keras.optimizers
 from keras import regularizers
 
 class Autoencoder:
-	def __init__(self, layers, training_set, regularize=True, optimizer='adadelta', loss='binary_crossentropy', validation_set=None):
+	def __init__(self, layers, training_set, regularize=False, optimizer='adadelta', loss='binary_crossentropy', validation_set=None):
 		self.training_set = training_set
 		self.validation_set = validation_set
 		h_index = len(layers) // 2
@@ -13,21 +13,22 @@ class Autoencoder:
 		# Set up the layer structure
 		X = Input(shape=(layers[0],))
 		self.A = [X]
-		if regularize:
-			activity_regularizer = regularizers.activity_l2()
-			W_regularizer = regularizers.l2()
-		else:
-			activity_regularizer =  None
-			W_regularizer = None
 		for layer, units in enumerate(layers):
 			if layer is 0: continue
 			activation_fn = 'sigmoid' if layer == len(layers)-1 else 'relu'
+			if regularize:
+				activity_regularizer = regularizers.activity_l2()
+				# W_regularizer = regularizers.l2()
+			else:
+				activity_regularizer =  None
+				W_regularizer = None
 			self.A.append(
 				Dense(
 					units, 
 					activation=activation_fn, 
 					activity_regularizer=activity_regularizer, 
-					W_regularizer=W_regularizer
+					# TODO: Check that we're using a good (uniform?) initialization
+					# W_regularizer=W_regularizer
 				)(self.A[layer-1])
 			)
 
