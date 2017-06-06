@@ -1,0 +1,15 @@
+Creditcard Fraud:
+  ae_batch_size: 1000
+  ae_layers:
+  - 30
+  - 15
+  - 2
+  - 15
+  - 30
+  ae_n_epoch: 1000
+  ae_n_init: 100
+  ae_optimizer: adagrad
+  k: 100
+  kmeans_n_init: 3
+random_seed: 0
+session_id: 2017-06-06 11h16
