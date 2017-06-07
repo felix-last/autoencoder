@@ -40,17 +40,18 @@ class Autoencoder:
 			if train_on_init:
 				self.model.fit(
 					nb_epoch=100,
-		            batch_size=256,
-		            shuffle=True,
-		            verbose=0,
-		            x=self.training_set,
-		            y=self.training_set
-		        )
+					batch_size=256,
+					shuffle=True,
+					verbose=0,
+					x=self.training_set,
+					y=self.training_set
+				)
 			parameters_by_cost[self.get_cost()] = self.model.get_weights()
 
 		self.model.set_weights(parameters_by_cost[min(parameters_by_cost.keys())])
 		self.model.compile(optimizer=optimizer, loss=loss)
-		print('Choosing AE weights with cost', self.get_cost())
+		if n_init > 1:
+			print('Choosing AE weights with cost', self.get_cost())
 		del parameters_by_cost
 		
 		self.loss = loss
@@ -70,25 +71,14 @@ class Autoencoder:
 		self.set_weights = self.set_parameters = self.model.set_weights
 		#self.decoder = Model(input=encoded_input, output=self.A[-1])
 
-
 	def get_cost(self, data=None):
 		if data is None:
 			data = self.training_set
 		return self.model.evaluate(data,data, verbose=0)
 
-
-
-	#################################
-	###########  LEGACY  ############
-	#################################
-	def train(self, epochs, eta, minibatch_size, mu=0.0, collect_stats_every_nth_epoch=1, verbose=False):
-		#sgd = keras.optimizers.SGD(lr=eta, momentum=mu, nesterov=False)
-		self.model.compile(optimizer='adadelta', loss='mse')
-		self.model.fit(self.training_set, self.training_set,
-                nb_epoch=epochs,
-                batch_size=minibatch_size,
-                validation_data=(self.validation_set, self.validation_set),
-                shuffle=True,
-                verbose= 1 if verbose else 0
-        )
-        
+	def from_weights(weights, data):
+		shapes = [w.shape for w in weights]
+		layer_structure = [shape[0] for shape in shapes[::2]] + [shapes[-1][0]]
+		ae = Autoencoder(layer_structure,data)
+		ae.set_weights(weights)
+		return ae
