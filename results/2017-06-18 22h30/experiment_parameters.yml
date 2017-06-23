@@ -1,0 +1,19 @@
+Creditcard Fraud:
+  ae_batch_size: 1000
+  ae_default_activation_fn: !!python/name:keras.layers.advanced_activations.LeakyReLU ''
+  ae_default_activation_fn_params:
+    alpha: 0.01
+  ae_layers:
+  - 30
+  - 15
+  - 2
+  - 15
+  - 30
+  ae_n_epoch: 100
+  ae_n_init: 1
+  ae_optimizer: adagrad
+  k: 1000
+  kmeans_n_init: 3
+SMOTE_k: 5
+random_seed: 623191333
+session_id: 2017-06-18 22h30
