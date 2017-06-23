@@ -1,19 +1,21 @@
 import numpy as np
 from sklearn.metrics.pairwise import euclidean_distances
 import warnings
+import imblearn.over_sampling
 
 def compute_synthetic_count(n, ratio):
     return int(np.floor(n - n * ratio))
 
 class IntraclusterSmote:
-    def __init__(self, n_intra, k, imbalance_ratio_threshold=1.0, decoder=None, save_creation_examples=0):
+    def __init__(self, n_intra, k=5, imbalance_ratio_threshold=1.0, decoder=None, save_creation_examples=0):
         """ 
         Initialize the model
         Args:
             n_intra (int): The total (intracluster) number of synthetic samples to be generated
-            k (int): number of nearest neighbors
+            k (int): number of nearest neighbors (default 5)
             imbalance_ratio_threshold (float): Ratio of (majority cases + 1 / minority cases + 1) below which a cluster is considered a minority cluster (default 1, corresponds to 50-50)
             decoder (function): If a decoder is given, X will be assumed to be in a transformed space and all generated samples will be decoded before returning.
+            save_creation_examples: Deprecated
         """
         self.n_intra = n_intra
         self.imbalance_ratio_threshold = imbalance_ratio_threshold
@@ -25,10 +27,10 @@ class IntraclusterSmote:
         self.k = k
 
         self.metadata = {}
-        self.save_creation_examples = save_creation_examples
-        if save_creation_examples:
-            self.metadata['creation_examples'] = list()
-            self.metadata['encoded_creation_examples'] = list()
+        # self.save_creation_examples = save_creation_examples
+        # if save_creation_examples:
+        #     self.metadata['creation_examples'] = list()
+        #     self.metadata['encoded_creation_examples'] = list()
         
         
     def fit_transform(self, X, y, minority_label, cluster_labels, X_unenc=None):
@@ -70,7 +72,7 @@ class IntraclusterSmote:
         for i, (cluster, density_factor, minority_mask, cluster_unenc) in enumerate(filtered_clusters):
             weight = (1/density_factor) / (density_sum)
             generate_count = int(np.floor(self.n_intra * weight))
-            synthetic_X.append(self._smote(cluster, generate_count, minority_mask, cluster_unenc))
+            synthetic_X.append(self._smote(cluster, generate_count, minority_mask, self.k))
             synthetic_y.append(np.full((generate_count,), minority_label, dtype=y.dtype))
 
         # save the encoded generated samples
@@ -107,24 +109,12 @@ class IntraclusterSmote:
                 filtered_clusters.append((cluster, density_factor, mask, cluster_unenc))
         return filtered_clusters, density_sum
 
-    def _smote(self, X, n, minority_mask, X_unenc):
-        X, X_unenc = X[minority_mask], X_unenc[minority_mask]
-        generated = np.empty((n,X.shape[1]))
-        d = self.decoder
-        for i in range(0,n):
-            a_index = np.random.choice(X.shape[0], size=(1))[0]
-            
-            # find a random nearest neighbor
-            k = self.k if X.shape[0] >= self.k else X.shape[0]
-            distances = np.sqrt(((X[a_index] - X)**2).sum(axis=1))
-            indices_k_nearest_neighbors = distances.argsort()[1:k+1]
-            b_index = np.random.choice(indices_k_nearest_neighbors, size=(1))[0]
-
-            a, b = X[a_index], X[b_index]
-            generated[i] = a + ((b-a) * np.random.rand())
-            if self.save_creation_examples > 0 and self.decoder != self.default_decoder:
-                self.metadata['encoded_creation_examples'].append((a,generated[i],b))
-            if self.save_creation_examples > np.random.rand():
-                decode_single_instance = lambda x: d(np.asarray([x]))[0] # use to turn a single instance into multi-row dataset, so the decoder can work with it, then reshape back
-                self.metadata['creation_examples'].append((X_unenc[a_index], decode_single_instance(generated[i]), X_unenc[b_index]))
+    def _smote(self, X, n, minority_mask, k):
+        X = X[minority_mask]
+        smote = imblearn.over_sampling.SMOTE(
+            ratio={1:n}, # ratio declares that samples of class one will be oversampled to n
+            k_neighbors=k,
+            kind='regular'
+        )
+        generated, _ = smote.sample(X,np.ones(shape=(X.shape[0],))) # X is filtered, so pass ones as target vector
         return generated
